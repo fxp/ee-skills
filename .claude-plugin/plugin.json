@@ -1,0 +1,10 @@
+{
+  "name": "ee-skills",
+  "version": "0.1.0",
+  "description": "Electronics-design skills backed by a sourced catalog of 500+ best-practice rules (RF, power, low-power, audio, precision analog, high-speed, EMC/ESD, HV safety, thermal, DFM) plus a KiCad verification harness.",
+  "author": { "name": "fxp", "url": "https://github.com/fxp" },
+  "homepage": "https://github.com/fxp/ee-skills",
+  "repository": "https://github.com/fxp/ee-skills",
+  "license": "MIT",
+  "keywords": ["electronics", "pcb", "kicad", "schematic", "design-review", "rf", "power", "emc", "dfm", "jlcpcb"]
+}

@@ -1,0 +1,1902 @@
+# general 领域 · 布局环节（stackup / floorplan / placement / routing / plane_pour）
+# 数模混合 MCU 板基线。领域专有细节（电源、RF、音频、模拟、高速、EMC、DFM、热）见各自文件。
+# 调研日期 2026-10-20。读过原文的来源标 high；二手 / 博客来源最高 medium。
+
+# ───────────────────────── stackup ─────────────────────────
+
+- id: GEN-STK-001
+  title: 按最高频率与辐射风险选层数，2 层板要补偿
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 板上有 ≥10~15 MHz 的时钟 / 快边沿、RF 或敏感模拟时优先 4 层（信号-地-电源-信号）；只有成本迫使用 2 层时，必须用整面地铺铜 / 地网格、电源与地并行走线来替代平面。
+  rationale: 完整平面给每条走线一个紧贴正下方的低电感回流路径并降低地阻抗；2 层板要靠布局手段（地网格、回流贴着信号线）才能逼近这个效果。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew (KiCad bundled Python)，参见 ee-pcb-verify 的 geometry 检查器"
+      check: "读 board.GetCopperLayerCount()；若为 2，统计底层 GND 铜覆盖率（填充区面积 / 板面积）与顶层信号线正下方底层有 GND 铜的线长占比；覆盖率 < 70% 或占比 < 90% 报警（70% / 90% 为经验阈值，需按板调整）"
+      automatable: partial
+    - method: emc_precompliance
+      tool: "近场探头 + 频谱仪 / 示波器"
+      check: "2 层样板在主时钟及其谐波、电机 PWM 边沿处做近场扫描，与整改前对比；任何频点超过项目 EMC 目标限值（或余量不足 6 dB，6 dB 为经验余量）则考虑升 4 层"
+      automatable: manual
+  sources:
+    - title: "PCB Stack-Up, Part 1 (Henry Ott Consultants)"
+      url: "https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-1.html"
+      publisher: "Henry Ott Consultants"
+      kind: paper
+      section: "two-layer vs. multi-layer"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.2 Two-Layer vs Four-Layer Boards"
+    - title: "Hardware design with RP2040"
+      url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
+      publisher: "Raspberry Pi"
+      kind: vendor_guide
+      section: "§2 minimal design (2 layer) vs §4 four-layer example"
+  confidence: medium
+  applies_to: [mcu_board, 2_layer, 4_layer]
+  parameters:
+    - name: multilayer_consider_above_clock
+      op: ">="
+      value: 10
+      unit: MHz
+      note: "Ott：约 10~15 MHz 以上通常应考虑多层板；2 层板在 20~25 MHz、无屏蔽外壳下也有成功先例（属例外）"
+    - name: four_vs_two_layer_radiation_reduction
+      op: "=="
+      value: 15
+      unit: dB
+      note: "Ott 经验值：其他条件相同，4 层板辐射比 2 层低约 15 dB（非实测数据）"
+  conflicts: "TI SZZA009 §2.1.2 称 2 层板模仿 4 层板的做法（地在电源下方、电源地网格化、回流在信号线正下方、MCU 下方实心地）可达到 4 层板约 95% 的效果；Ott 则给出 4 层比 2 层低约 15 dB 的经验值并建议 10~15 MHz 以上用多层。两者不矛盾于方向，分歧在 2 层板的上限。取舍：默认 4 层；2 层板必须满足 TI 列出的四条补偿做法并过预兼容扫描。"
+  tags: [cat-feeder]
+
+- id: GEN-STK-002
+  title: 4 层板信号层贴近邻接平面，两平面间用厚芯板
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 4 层板（信号-GND-PWR-信号）里，外层信号到其邻接平面的介质厚度 < 0.254 mm（10 mil），中间两个平面之间的芯板 > 1.016 mm（40 mil）。
+  rationale: 信号与回流平面越近，回流环路面积越小、辐射越低（Ott 称 0.005 in 间距可比等间距叠层减少 10 dB 以上的环路辐射）；电源 / 地平面间距大时电容耦合弱，但换来信号-平面紧耦合，是 4 层板的折中。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：board.GetDesignSettings().GetStackupDescriptor() 遍历介质层"
+      check: "取 F.Cu 与 In1.Cu 之间介质厚度 d1、B.Cu 与 In2.Cu 之间 d3、In1 与 In2 之间 d2；通过判据 d1 < 0.254 mm 且 d3 < 0.254 mm 且 d2 > 1.016 mm"
+      automatable: full
+    - method: tline_calc
+      tool: "2D 场求解器 / 阻抗计算器"
+      check: "用上述叠层计算 50 Ω 微带线宽度；确认在板厂可做的线宽范围内（JLC04161H-7628 外层到 L2 介质 0.2104 mm）"
+      automatable: partial
+  sources:
+    - title: "PCB Stack-Up, Part 2 (Henry Ott Consultants)"
+      url: "https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-2.html"
+      publisher: "Henry Ott Consultants"
+      kind: paper
+      section: "Fig. 2 four-layer stack-up"
+    - title: "JLCPCB impedance control stackups (JLC04161H-7628)"
+      url: "https://jlcpcb.com/impedance"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+      section: "4-layer JLC04161H-7628"
+  confidence: high
+  applies_to: [4_layer]
+  parameters:
+    - name: signal_to_plane_dielectric
+      op: "<"
+      value: 0.254
+      unit: mm
+      note: "Ott：<0.010 in"
+    - name: plane_to_plane_core
+      op: ">"
+      value: 1.016
+      unit: mm
+      note: "Ott：>0.040 in。JLC04161H-7628：prepreg 0.2104 mm，芯板 1.065 mm，满足该判据"
+  conflicts: "TI SCAA082A 表 3 把 SIG-GND-PWR-SIG（其 Model 2）的 EMC 评为 Bad、去耦评为 Good，与 Ott 把它视为 4 层板的改进方案不同；Ott 的前提是外层贴近平面并拉大中间芯板。本条按 Ott；若需要更好 EMC，Ott 的 Fig. 3b（两外层为地、电源走线）是 4 层板能做到的最好方案，但元件焊盘会割裂外层地。"
+
+- id: GEN-STK-003
+  title: 每个走线层邻接参考平面，高频线埋在两平面之间
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 凡布高频 / 开关信号的层，紧邻必须有完整的 GND（或 PWR）平面；6 层板避免 SIG-SIG-GND-PWR-SIG-SIG，优先 SIG-GND-SIG-SIG-PWR-SIG（Ott Fig. 6，最常见）或 GND-SIG-GND-PWR-SIG-GND（Ott Fig. 8，仅 2 个走线层）这类让高频层夹在平面之间的叠层。
+  rationale: 回流电流走阻抗最低的路径，也就是信号正下方 / 正上方的相邻平面；没有相邻平面的走线层回流只能绕远路，环路面积大。两平面夹住的埋层还能屏蔽辐射。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew 读叠层 + 各层 zone 填充"
+      check: "遍历叠层，对每个含 ≥1 条走线的铜层，判断上或下相邻铜层是否为 GND / PWR 平面层；对 6 层板判断是否出现相邻两信号层且外侧无平面（SIG-SIG-PLANE-PLANE-SIG-SIG 模式）"
+      automatable: full
+    - method: review
+      tool: "叠层评审清单"
+      check: "对照 Ott 五条目标逐条打勾：①信号层邻平面 ②信号与平面紧耦合 ③电源地平面紧耦合 ④高速线埋层 ⑤多地平面；记录哪几条被牺牲"
+      automatable: manual
+  sources:
+    - title: "PCB Stack-Up, Part 1 (Henry Ott Consultants)"
+      url: "https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-1.html"
+      publisher: "Henry Ott Consultants"
+      kind: paper
+      section: "five EMC objectives"
+    - title: "PCB Stack-Up, Part 3 (Henry Ott Consultants)"
+      url: "https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-3.html"
+      publisher: "Henry Ott Consultants"
+      kind: paper
+      section: "six-layer, Fig. 5 (avoid) and Fig. 6-8"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2 Board Stackup, Table 4"
+  confidence: high
+  applies_to: [4_layer, 6_layer]
+  conflicts: "TI SCAA082A 表 4 把 6 层 Model 1（SIG-SIG-VCC-GND-SIG-SIG）EMC 评为 Bad，与 Ott 的 Fig. 5 结论一致；对 3 号 / 4 号模型的评分与 Ott 的排序略有差异，但都支持“高频信号层夹在平面之间”。无冲突，仅评分细节不同。"
+
+- id: GEN-STK-004
+  title: 2 层板：底层做地参考，元件只放顶层
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 2 层 MCU 板把底层几乎整面留给 GND 铺铜，底层不放元件、尽量不走线；重要信号（时钟、高速 IO、射频）下方的底层必须是连续地，不被其他走线切断。
+  rationale: 2 层板没有内层平面，把底层当地平面是能提供“紧贴正下方的回流路径”的最接近做法；单面贴装也降低装配成本。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "统计 B.Cu 上非 GND 网络的走线总长与焊盘数（应接近 0，仅允许少量必要跳线）；对每条顶层高速 / 时钟网络采样（每 1 mm 一点），检查该点正下方 B.Cu 是否落在 GND 填充区内，通过判据 ≥ 95% 的采样点在 GND 铜内（95% 为经验阈值）"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则 .kicad_dru"
+      check: "(rule \"no_bottom_parts\" (layer B.Cu) (constraint disallow footprint)) 禁止底层元件；底层走线统计用 geometry_script"
+      automatable: full
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "General Principles of PCB Layout for the Chip: Two-layer"
+    - title: "Hardware design with RP2040"
+      url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
+      publisher: "Raspberry Pi"
+      kind: vendor_guide
+      section: "§2 Minimal design example; §2.4.1 USB"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.2, §2.2.3"
+  confidence: high
+  applies_to: [2_layer, mcu_board]
+  tags: [cat-feeder]
+
+- id: GEN-STK-005
+  title: 按板厂能力设板级约束，不贴着极限设计
+  domain: general
+  stage: stackup
+  severity: must
+  rule: 在 Board Setup 里把最小线宽 / 线距 / 过孔 / 环宽 / 铜到板边设成板厂可制造的值，并通用网络用高于最小值的推荐值；JLC 2 层 1 oz：线宽 / 线距 ≥ 0.10 / 0.10 mm，过孔孔径 ≥ 0.15 mm 且过孔外径 ≥ 0.25 mm，铜到铣边 ≥ 0.2 mm。
+  rationale: 低于板厂能力的设计会被拒收或加价；设计规则一旦与板厂能力对齐，DRC 才等于“可投板”的判据。
+  verify:
+    - method: drc
+      tool: "kicad-cli pcb drc --format json（项目 .kicad_pro 的 board_setup 约束）"
+      check: "确认 .kicad_pro 中 min_track_width ≥ 0.10 mm、min_clearance ≥ 0.10 mm（2 层 1 oz）、min_via_diameter ≥ 0.25 mm、min_through_hole_diameter ≥ 0.15 mm、min_copper_edge_clearance ≥ 0.2 mm；DRC 0 error"
+      automatable: full
+    - method: review
+      tool: "板厂在线 DFM / 报价页"
+      check: "上传 Gerber 看板厂 DFM 报告无 trace / space / annular ring 违规"
+      automatable: manual
+  sources:
+    - title: "JLCPCB PCB Manufacturing & Assembly Capabilities"
+      url: "https://jlcpcb.com/capabilities/pcb-capabilities"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+      section: "1-2 layer 与 multilayer 列"
+    - title: "KiCad 9.0 PCB Editor — Board Setup constraints and DRC"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Board Setup > Constraints; Design for manufacturing DRC checks"
+  confidence: high
+  applies_to: [jlc, 2_layer]
+  parameters:
+    - name: min_track_width_1oz_2layer
+      op: ">="
+      value: 0.10
+      unit: mm
+      note: "JLC 1-2 层 1 oz；4-6 层为 0.09 mm；2 oz 2 层为 0.16 mm"
+    - name: min_clearance_1oz_2layer
+      op: ">="
+      value: 0.10
+      unit: mm
+      note: "JLC 1-2 层 1 oz；2 oz 为 0.16 mm"
+    - name: min_via_hole
+      op: ">="
+      value: 0.15
+      unit: mm
+      note: "JLC 页面写明 0.1 mm 仅限板厚 ≤1 mm 且 ENIG/OSP；常规按 0.15 mm"
+    - name: min_via_outer_diameter
+      op: ">="
+      value: 0.25
+      unit: mm
+      note: "JLC；同上条件可 0.2 mm"
+    - name: min_pth_annular_ring_2layer_1oz
+      op: ">="
+      value: 0.18
+      unit: mm
+      note: "JLC 绝对最小；推荐 0.25 mm"
+    - name: copper_to_routed_edge
+      op: ">="
+      value: 0.2
+      unit: mm
+      note: "JLC 铣边；V-cut 边为 0.4 mm"
+  tags: [cat-feeder]
+
+- id: GEN-STK-006
+  title: 网络类宽度只是默认值，必须用自定义规则落成 DRC
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 为 Power / Signal / Clock 等网络类定义线宽、间距、过孔尺寸后，再用 .kicad_dru 里的 track_width / clearance / via_diameter 约束把它们变成可检查的下限；否则手动改线宽不会触发 DRC。
+  rationale: KiCad 的网络类线宽只是布线器默认值；文档明确说除非用自定义规则设最小 / 最大值，否则不会报告违规。
+  verify:
+    - method: drc
+      tool: "KiCad 自定义规则 .kicad_dru + kicad-cli pcb drc"
+      check: "加入 (version 1) (rule power_width (layer outer) (condition \"A.hasNetclass('Power')\") (constraint track_width (min 0.5mm))) 与 (rule power_via (condition \"A.hasNetclass('Power') && A.Type == 'Via'\") (constraint via_diameter (min 0.6mm)))；DRC 0 error。数值按 GEN-STK-007 的电流计算替换"
+      automatable: full
+  sources:
+    - title: "KiCad 9.0 PCB Editor — Custom design rules; Track width violation"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Advanced topics > Custom design rules; DRC > Track width"
+  confidence: high
+  applies_to: [kicad]
+  tags: [cat-feeder]
+
+- id: GEN-STK-007
+  title: 按电流和温升算线宽，IPC-2221 作保守下限
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 载流线宽用 IPC-2221 公式 I = k·ΔT^0.44·A^0.725 估算（A 单位 mil²，外层 k=0.048，内层 k=0.024），ΔT 取 10 °C；有明确叠层且走线邻近铜平面时可用 IPC-2152 放宽，但同一块板不要混用两套标准。
+  rationale: 线宽太窄会过热、压降大；IPC-2221 图表来自 1950 年代的有限数据，偏保守，IPC-2152（2009）用较新的测试并引入平面等修正，但各二手资料对其外 / 内层结论不一致。
+  verify:
+    - method: tline_calc
+      tool: "Python 按公式计算（1 oz = 1.378 mil 厚）"
+      check: "对每条载流网络取峰值 / RMS 电流 I，反解 A=(I/(k·ΔT^0.44))^(1/0.725)，宽度=A/铜厚；板上该网络最窄处宽度 ≥ 计算值。例（本调研按公式算出）：1 oz 外层 ΔT=10 °C：1 A→0.30 mm，3 A→1.37 mm，5 A→2.77 mm；同条件内层 k=0.024：1 A→0.78 mm，3 A→3.56 mm"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew：遍历 PCB_TRACK，按网络取 GetWidth() 最小值；铜皮用 zone 填充最窄颈宽"
+      check: "对每个电源 / 电机网络，最窄走线宽度 ≥ 上一条算出的宽度；过窄处报警"
+      automatable: full
+    - method: bench
+      tool: "热电偶或热像仪 + 可调电流源"
+      check: "对最窄的载流段通额定峰值电流（稳态）10 分钟，测相对环境温升，通过判据 ≤ 设计 ΔT（10 °C）；同时四线法测压降"
+      automatable: manual
+  sources:
+    - title: "Optimize your PCB trace using IPC-2152 standard"
+      url: "https://www.protoexpress.com/blog/how-to-optimize-your-pcb-trace-using-ipc-2152-standard/"
+      publisher: "Sierra Circuits"
+      kind: blog
+    - title: "IPC-2221 vs IPC-2152: Which PCB Trace Standard Should You Use?"
+      url: "https://semiconductor.tools/blogs/07-ipc-2221-vs-ipc-2152"
+      publisher: "semiconductor.tools"
+      kind: blog
+    - title: "PCB Trace Width and Current Capacity"
+      url: "https://www.atlaspcb.com/blog/pcb-trace-width-current-capacity/"
+      publisher: "AtlasPCB"
+      kind: blog
+    - title: "IPC-2221B 与 IPC-2152"
+      ref: "IPC-2221B §6（导体载流图表）；IPC-2152（2009）"
+      kind: standard
+  confidence: medium
+  applies_to: [power_nets, motor_driver]
+  parameters:
+    - name: ipc2221_k_external
+      op: "=="
+      value: 0.048
+      unit: "-"
+      note: "I = k·ΔT^0.44·A^0.725，A 为 mil²"
+    - name: ipc2221_k_internal
+      op: "=="
+      value: 0.024
+      unit: "-"
+      note: "同上；内层 k 减半，同电流下所需截面积约为外层的 2.6 倍（因 0.725 指数）"
+    - name: design_temp_rise
+      op: "<="
+      value: 10
+      unit: degC
+      note: "常用基线；semiconductor.tools 建议高可靠 5 °C、非关键最多 20 °C；Wevolver 称 10 °C→20 °C 约可减窄 25~30%（二手数字）"
+  conflicts: "二手资料对 IPC-2221 与 IPC-2152 的差异说法不一：Sierra Circuits、semiconductor.tools 等称 IPC-2221 整体偏保守、内层尤甚（内层 k 减半），IPC-2152 显示内外层相差不大；AtlasPCB 却称 IPC-2221 对外层偏保守、对内层常不保守，IPC-2152 对外层允许更大电流、对内层更小。另有博客给出的 IPC-2221 示例宽度（3 A 外层 46 mil）与按公式实算的 54 mil 不符。取舍：公式常数以 Sierra 页面为准并已自行验算；设计时 IPC-2221 当保守下限，只有叠层已知且邻近平面时才用 IPC-2152 缩窄，并用热测量验证。没有读到 IPC 标准原文，故置信度 medium。"
+  tags: [cat-feeder]
+
+- id: GEN-STK-008
+  title: 载流层间过孔至少两个，并按孔壁截面估算电流
+  domain: general
+  stage: stackup
+  severity: should
+  rule: 电源 / 地 / 电机电流跨层时至少打 2 个过孔并联；单个过孔载流按孔壁铜截面（π·(D+t)·t）代入 IPC-2221 估算，并留余量，大电流网络用过孔阵列。
+  rationale: 过孔桶壁铜很薄（常见 25 µm），单个过孔的载流和电感都有限；并联过孔降低电阻与电感，也避免单点失效。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：遍历电源 / 地网络的 PCB_VIA，按“连接同一对铜区域的过孔数”分组"
+      check: "每个电源 / 地 / 电机网络的每个跨层连接点，并联过孔数 ≥ 2；大电流网络用 I / I_via_max 向上取整得到所需数量，I_via_max 取下面 note 估算的保守值"
+      automatable: partial
+    - method: drc
+      tool: "KiCad 自定义规则 via_count"
+      check: "(rule min_two_vias (condition \"A.hasNetclass('Power')\") (constraint via_count (min 2))) —— 注意 via_count 统计的是整网过孔总数，只能粗筛；逐连接点检查用 geometry_script"
+      automatable: partial
+    - method: bench
+      tool: "毫欧表 / 四线法 + 热像仪"
+      check: "对最大电流路径通额定电流测过孔段压降与温升，温升 ≤ 设计 ΔT"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply（四层板：主电源跨层至少两个过孔）"
+    - title: "Trace Width vs Current in PCB Design"
+      url: "https://www.wevolver.com/article/trace-width-vs-current-in-pcb-design"
+      publisher: "Wevolver"
+      kind: blog
+      section: "via current capacity"
+    - title: "PCB Trace Width and Current Capacity"
+      url: "https://www.atlaspcb.com/blog/pcb-trace-width-current-capacity/"
+      publisher: "AtlasPCB"
+      kind: blog
+      section: "via current estimate from barrel area"
+  confidence: medium
+  applies_to: [power_nets, motor_driver]
+  parameters:
+    - name: min_parallel_vias_power_transition
+      op: ">="
+      value: 2
+      unit: count
+      note: "Espressif：主电源走线跨层至少两个过孔"
+  conflicts: "单个过孔的载流数字各来源差异大：Wevolver 称“典型过孔约 0.5 A”、5 A 网络要 5~10 个过孔，AtlasPCB 按 0.3 mm 孔、25 µm 镀铜的桶壁截面估算给 ≈1.2 A（10 °C 温升）；按 IPC-2221 常数自行算同一过孔桶壁截面（≈39.6 mil²）：外层 k 得 ≈1.9 A，内层 k 得 ≈0.95 A。取舍：没有标准原文，不把任何单一数字写进 parameters；设计取 ≤0.5 A / 过孔的保守值并用热测量验证，且最少 2 个。"
+  tags: [cat-feeder]
+
+# ───────────────────────── floorplan ─────────────────────────
+
+- id: GEN-FLR-001
+  title: 按功能和噪声等级分区，快逻辑靠近电源、模拟最远
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 布局前先画功能分区图（电源入口、稳压、数字 / MCU、慢速 IO、模拟、RF、连接器），同一功能的器件及走线放在一起；高速逻辑靠近电源，慢速器件更远，模拟器件最远。
+  rationale: 噪声源靠近供电点可缩短高频电流环路，同时给敏感电路留出隔离距离；分区后各子系统的走线不需要穿过彼此的区域，也就不需要分割地平面。
+  verify:
+    - method: review
+      tool: "分区图评审清单"
+      check: "检查：每个功能块有明确矩形区域；MCU / 时钟在靠近稳压器一侧；模拟前端、称重 / 采样输入远离电机驱动与开关节点；分区图随 PCB 评审一起存档"
+      automatable: manual
+    - method: geometry_script
+      tool: "pcbnew：按元件 sheet / 组分类取质心"
+      check: "给每个功能块定义元件集合，计算块间质心距离与块外包矩形重叠；通过判据：任意两个块的外包矩形重叠面积 = 0，且噪声块（电机驱动、稳压器）与敏感块（采样输入、晶振）的最小间距 ≥ 设计设定值（项目自定，例如 10 mm）"
+      automatable: partial
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Board Zoning"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2 Practical PCB Design Rules（功能框图）"
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+  confidence: high
+  applies_to: [mcu_board, mixed_signal]
+  tags: [cat-feeder]
+
+- id: GEN-FLR-002
+  title: 电源入口、稳压器、MCU 依次相邻，地在三者间单点汇合
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 把 MCU 放在稳压器旁边、稳压器放在电源入口旁边，三者之间用实心（或网格化）地连成一个单点地参考，外壳 / 屏蔽也接在这一点。
+  rationale: 电源路径越短、越像单点连接，共阻抗耦合越小；MCU 的高频电流应当来自它身边的去耦电容，而不是长长的电源线。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew，参见 ee-pcb-verify 的 geometry 检查器"
+      check: "计算 电源入口连接器焊盘→稳压器输入电容→稳压器→MCU 供电引脚 的走线总长与折线长度，通过判据：稳压器到 MCU 的直线距离不超过板对角线的 1/3（经验阈值，按板调整），且这条路径上无其他功能块的元件插入"
+      automatable: partial
+    - method: bench
+      tool: "示波器（20 MHz 带宽限制关闭，短地弹簧）"
+      check: "在 MCU 供电引脚处测 VDD 纹波与 IO 翻转时的瞬态跌落，通过判据：跌落 < 芯片数据手册允许的 VDD 容差的一半"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Board Zoning; §2.2.1 Single-Point vs Multipoint Distribution"
+  confidence: medium
+  applies_to: [mcu_board, ldo]
+  tags: [cat-feeder]
+
+- id: GEN-FLR-003
+  title: 各子系统的走线只在自己的分区内，跨区只走指定通道
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 模拟信号只在模拟区、数字信号只在数字区布线（所有层）；确需跨区的信号（如 ADC 的数字接口）走预先指定的一条通道，ADC / 带 ADC 的器件跨在分区边界上。
+  rationale: 分区的目的是让数字回流电流不进入模拟区。只要有一条数字线布进模拟区，下方的回流路径就会穿过模拟区，破坏分区。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：按网络类 / 网络名分类"
+      check: "为每个分区定义矩形；对每条网络类为 Analog 的走线与过孔，检查是否落在数字区矩形内，对 Digital 网络反之；通过判据：违规线段数 = 0（指定通道内的跨区信号列入白名单）"
+      automatable: full
+    - method: drc
+      tool: "KiCad 规则区域 + 自定义规则"
+      check: "在数字区画规则区域 'dig_zone'，加 (rule no_analog_in_digital (condition \"A.intersectsArea('dig_zone') && A.hasNetclass('Analog')\") (constraint disallow track via))，反向再建一条 'ana_zone' 规则"
+      automatable: full
+  sources:
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3, Figure 9"
+  confidence: high
+  applies_to: [mixed_signal]
+  tags: [cat-feeder]
+
+- id: GEN-FLR-004
+  title: 大电流路径和开关环路远离敏感小信号
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 电机驱动 / MOSFET、分流电阻回路等大电流和快边沿路径及其地回流，布在与称重 / 采样输入、复位、晶振分开的区域；大功率地与数字 / 模拟地只在单点汇合。
+  rationale: 数字地和大功率地承载需要被限制的射频电流，且高 di/dt 会通过公共地阻抗耦合进敏感电路；不相关的低噪声线靠近继电器 / 电机驱动器等会拾取噪声。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取大电流网络（网络类 Power / Motor）的所有走线与焊盘，对敏感网络（采样输入、晶振、复位、EN）的每条走线计算两者最小间距，通过判据 ≥ 项目设定值（建议 ≥ 5 mm，经验阈值）；同时检查电机回流电流路径是否经过模拟区"
+      automatable: partial
+    - method: bench
+      tool: "示波器 + 称重 / 采样通道静态读数"
+      check: "电机 PWM 运行与停转两种状态下，记录采样通道读数的噪声（峰峰值 / 标准差）；通过判据：运行时噪声增量 < 采样分辨率的 1 LSB RMS 或项目指定值"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.5 Analog vs Digital vs High Power; §2.4.1 Capacitive and Inductive Crosstalk"
+    - title: "Grounding Analog-Digital Converters (J. Bryant, ADI lecture, mirror)"
+      url: "http://www.hit.bme.hu/~papay/edu/Acrobat/GndADCs.pdf"
+      publisher: "Analog Devices"
+      kind: app_note
+  confidence: medium
+  applies_to: [motor_driver, mixed_signal]
+  tags: [cat-feeder]
+
+- id: GEN-FLR-005
+  title: 连接器集中在板边，噪声源与晶振远离连接器
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 外部连接器（电源、电机、传感器、调试口）成组放在板边同一区域，I/O 的滤波 / ESD 器件放在连接器附近；晶振回路、开关器件、时钟线远离连接器和电缆走向，不设计会折叠到振荡器 / MCU 上方的线缆。
+  rationale: 电缆是主要辐射体和注入通道；噪声线靠近连接器会被耦合到电缆上，外部电缆干扰也更容易进入时钟、复位。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取所有连接器 footprint 的外包框到最近板边距离（应 ≤ 5 mm，经验阈值）与连接器所在边集合（≤ 2 条边）；取晶振 / 时钟网络走线到最近连接器焊盘的距离，通过判据 ≥ 项目设定值（建议 ≥ 15 mm）"
+      automatable: partial
+    - method: emc_precompliance
+      tool: "电流探头 / 近场探头"
+      check: "连接电缆后，用共模电流探头测电缆上的共模电流谱，对比拔掉电缆的基线"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Board Zoning; §2.4.1; §2.5 Cables and Connectors"
+    - title: "7 PCB Design Guidelines for EMI and EMC"
+      url: "https://www.protoexpress.com/blog/7-pcb-design-tips-solve-emi-emc-issues/"
+      publisher: "Sierra Circuits"
+      kind: blog
+      section: "connectors and I/O"
+  confidence: medium
+  applies_to: [mcu_board]
+  tags: [cat-feeder]
+
+- id: GEN-FLR-006
+  title: 带板载天线的模块放在板边，天线区空出
+  domain: general
+  stage: floorplan
+  severity: should
+  rule: 带 PCB 天线的 Wi-Fi / BLE 模块把天线端放在板边外侧或贴边，馈点尽量靠近板边；天线下方和周围所有层不放铜与器件，不要让模块四周都被挖空；外壳内天线周围各方向至少留 15 mm。
+  rationale: 天线周围的铜和器件会失谐并降低增益；贴边放置是让天线辐射区远离主板铜的最简单办法。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew，参见 ee-pcb-verify 的 geometry 检查器 的天线区检查"
+      check: "取模块 footprint 天线端的外包框，通过判据：天线禁布区内（所有铜层）元件数 = 0，且天线端到最近板边距离 ≤ 馈点到板边距离的 +2 mm；板边外侧悬出时检查机械可行性"
+      automatable: partial
+    - method: bench
+      tool: "路由器 / 手机 RSSI 或吞吐量测试"
+      check: "在最终外壳里测同一距离、同一环境下的 RSSI 与吞吐量，对比模块官方开发板；通过判据：RSSI 差 ≤ 3 dB"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "General Principles of PCB Layout for Modules"
+  confidence: high
+  applies_to: [wifi_module, esp32]
+  parameters:
+    - name: antenna_clearance_in_housing
+      op: ">="
+      value: 15
+      unit: mm
+      note: "Espressif：外壳内天线周围各方向"
+  conflicts: "“RSSI 差 ≤ 3 dB” 是本条验证的经验通过判据，不是 Espressif 数值；RF 领域细节由 RF 文件负责。"
+  tags: [cat-feeder]
+
+- id: GEN-FLR-007
+  title: 板框闭合，铜到板边满足板厂最小间距
+  domain: general
+  stage: floorplan
+  severity: must
+  rule: Edge.Cuts 板框必须是闭合不自交的轮廓；铜（线、焊盘、铺铜）到铣边 ≥ 0.2 mm、到 V-cut 边 ≥ 0.4 mm（JLC）。
+  rationale: 板框不闭合板厂无法加工；铜离板边太近会被铣刀切到而短路或露铜。
+  verify:
+    - method: drc
+      tool: "kicad-cli pcb drc --format json"
+      check: "项目设 min_copper_edge_clearance=0.2 mm（V-cut 板 0.4 mm）；DRC 里“Board has malformed outline”和“Board edge clearance violation”必须为 0；自定义规则 (rule edge_all (constraint edge_clearance (min 0.3mm))) 可给余量"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对 Edge.Cuts 取闭合多边形，计算所有铜对象（线、焊盘、铺铜填充）到其最小距离，通过判据 ≥ 0.2 mm"
+      automatable: full
+  sources:
+    - title: "JLCPCB PCB Manufacturing & Assembly Capabilities"
+      url: "https://jlcpcb.com/capabilities/pcb-capabilities"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+    - title: "KiCad 9.0 PCB Editor — Design for manufacturing DRC checks"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Board edge clearance violation; Board has malformed outline"
+  confidence: high
+  applies_to: [jlc]
+  parameters:
+    - name: copper_to_routed_edge
+      op: ">="
+      value: 0.2
+      unit: mm
+      note: "JLC 铣边"
+    - name: copper_to_vcut_edge
+      op: ">="
+      value: 0.4
+      unit: mm
+      note: "JLC V-cut"
+  tags: [cat-feeder]
+
+- id: GEN-FLR-008
+  title: 安装孔预先定位，孔径和孔距满足板厂，并留地回流接点
+  domain: general
+  stage: floorplan
+  severity: consider
+  rule: 在布局初期定好安装孔位置；非镀铜孔（NPTH）孔径 ≥ 0.5 mm，孔与孔边到边 ≥ 0.45 mm；靠近 I/O 连接器的安装孔需要做机壳地回流时用镀铜孔接 GND，并尽量靠近连接器外壳地和 ESD 器件地。
+  rationale: 机壳螺钉紧邻 TVS 地和连接器屏蔽地，是为 ESD 电流提供低阻抗回流的做法；孔位晚定会反过来推翻布局。
+  verify:
+    - method: drc
+      tool: "kicad-cli pcb drc；自定义规则"
+      check: "(rule mount_hole_size (condition \"A.Type == 'Pad' && A.Pad_Type == 'NPTH, mechanical'\") (constraint hole_size (min 0.5mm))) 与 (rule hole2hole (constraint hole_to_hole (min 0.45mm)))；DRC 0 error"
+      automatable: full
+    - method: review
+      tool: "机械装配核对"
+      check: "与外壳 3D / 图纸叠合，检查螺钉头、塑料柱与元件、走线的干涉；螺钉头禁布半径按实际螺钉定，不在本库给数值"
+      automatable: manual
+  sources:
+    - title: "JLCPCB PCB Manufacturing & Assembly Capabilities"
+      url: "https://jlcpcb.com/capabilities/pcb-capabilities"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+    - title: "ESD Protection Layout Guide (SLVA680A)"
+      url: "https://www.ti.com/lit/an/slva680/slva680.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1, §2.4"
+  confidence: medium
+  applies_to: [mcu_board, jlc]
+  parameters:
+    - name: min_npth_hole
+      op: ">="
+      value: 0.5
+      unit: mm
+      note: "JLC 最小 NPTH 孔"
+    - name: min_hole_to_hole
+      op: ">="
+      value: 0.45
+      unit: mm
+      note: "JLC 焊盘孔到孔最小间距"
+  tags: [cat-feeder]
+
+# ───────────────────────── placement ─────────────────────────
+
+- id: GEN-PLC-001
+  title: 先放固定件，再放 MCU 链，最后放去耦与外围
+  domain: general
+  stage: placement
+  severity: consider
+  rule: 布局顺序：①位置被机械固定的件（连接器、安装孔、天线模块、按键）→ ②电源入口→稳压器→MCU 这条链（见 GEN-FLR-002）→ ③紧贴 IC 引脚的去耦电容、晶振及负载电容 → ④其余外围；每一步完成后再进下一步，后一步不得推翻前一步的位置。
+  rationale: 去耦、晶振等对距离最敏感的件必须贴着 IC，所以要在 IC 位置定下后立刻放，而不是留到最后见缝插针。
+  verify:
+    - method: review
+      tool: "布局评审清单"
+      check: "检查：连接器和安装孔位置与外壳一致；MCU 周围每个电源引脚都有去耦电容在最近位置；没有因后加外围而把去耦电容挤远（对照 GEN-PLC-002 的距离检查）"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Board Zoning (prioritizing component placement)"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "General Principles of PCB Layout for Modules"
+  confidence: low
+  applies_to: [mcu_board]
+  conflicts: "只有 TI 给出了一条优先级清单（MCU 靠近稳压器、稳压器靠近电源入口），“固定件 → 大 IC → 外围”的完整顺序是通用经验，本次调研没有找到一份权威来源逐条规定，因此置信度 low。"
+  tags: [cat-feeder]
+
+- id: GEN-PLC-002
+  title: 每个电源引脚一个去耦电容，小容值最近
+  domain: general
+  stage: placement
+  severity: should
+  rule: 每个 IC 电源引脚配一个 100 nF 去耦电容（共用引脚的情况可例外），把容值最小的电容放在最靠近该引脚的位置；电容与引脚之间的走线长宽比 ≤ 3:1。
+  rationale: 去耦电容要在时钟沿提供瞬时电流，回路电感越小越有效；小容值电容自谐振频率高但对走线电感最敏感，必须最近。ADI 的 ADC 讲义甚至给出某款 ADC 去耦电容必须在 2.5 mm 以内否则丢码的实例。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew，参见 ee-pcb-verify 的 geometry 检查器"
+      check: "对每个 IC 的每个电源引脚，找同网络、值为 100 nF（或最小容值）的电容，量引脚焊盘中心到电容电源焊盘中心的距离 d，及两者间走线的长度 / 宽度比；通过判据：d ≤ 项目设定值（建议 ≤ 3 mm，经验阈值，按封装调整）且长宽比 ≤ 3；每个电源引脚都存在这样的电容，共用的需在 note 登记"
+      automatable: full
+    - method: spice
+      tool: "ngspice：PDN 简化模型"
+      check: "用 ESL（含走线电感）扫描去耦电容到引脚的电感（0.5 / 1 / 2 / 4 nH），看 100 MHz 处 PDN 阻抗 vs 目标阻抗，确认目标距离下仍满足"
+      automatable: partial
+    - method: bench
+      tool: "示波器（带宽 ≥ 200 MHz，短地弹簧）"
+      check: "在 MCU 电源引脚旁测 IO 全速翻转时的 VDD 跌落 / 尖峰，通过判据：尖峰峰峰值 < 芯片 VDD 容差的 1/2 或项目设定值"
+      automatable: manual
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.4 Decoupling Capacitors"
+    - title: "Hardware design with RP2040"
+      url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
+      publisher: "Raspberry Pi"
+      kind: vendor_guide
+      section: "§2.1.2 Decoupling capacitors"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.4 Bypassing and Ferrite Beads"
+    - title: "Grounding Analog-Digital Converters (J. Bryant, ADI lecture, mirror)"
+      url: "http://www.hit.bme.hu/~papay/edu/Acrobat/GndADCs.pdf"
+      publisher: "Analog Devices"
+      kind: app_note
+      section: "SUPPLY DECOUPLING"
+  confidence: high
+  applies_to: [mcu, qfn, module]
+  parameters:
+    - name: decap_per_power_pin
+      op: "=="
+      value: 1
+      unit: count
+      note: "RP2040 指南：每个电源引脚 100 nF，个别空间受限引脚可共用"
+    - name: decap_loop_trace_length_to_width
+      op: "<="
+      value: 3
+      unit: ratio
+      note: "TI SZZA009：旁路回路中的走线长宽比"
+    - name: decap_value_nearest_pin
+      op: minimize
+      value: null
+      unit: nF
+      note: "TI SCAA082A：容值最小的电容离引脚最近"
+  tags: [cat-feeder]
+
+- id: GEN-PLC-003
+  title: 去耦电容地焊盘就近接地，用过孔或直连地铜
+  domain: general
+  stage: placement
+  severity: should
+  rule: 去耦电容的地焊盘直接连到地平面 / 地铺铜——通过紧贴焊盘的过孔（多层板可用 2~3 个），或在离 IC 地引脚足够近时直接连到地引脚；不通过一段细线再去找地。
+  rationale: 电容的接地端电感和电源端一样重要；一段细线会把电容的有效频带拉低。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个去耦电容的 GND 焊盘，找最近的 GND 过孔或 GND 铺铜连接，量焊盘边缘到过孔边缘距离和连接线长；通过判据：连接线长 ≤ 焊盘宽度的 1 倍（经验阈值）或焊盘与 GND 铜直连（thermal relief 的辐条数 ≥ 2，见 GEN-PLN-008）"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则"
+      check: "(rule decap_gnd_direct (condition \"A.Type == 'Pad' && A.Reference == 'C*' && A.NetName == 'GND'\") (constraint connection_width (min 0.3mm))) —— 检查与地铜连接足够宽；距离判据用 geometry_script"
+      automatable: partial
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.4 Decoupling Capacitors"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply（去耦电容地焊盘旁要有接地过孔）"
+  confidence: high
+  applies_to: [2_layer, 4_layer]
+  parameters:
+    - name: ground_vias_per_decap
+      op: range
+      value: [1, 3]
+      unit: count
+      note: "TI 对多层板写“2~3 个过孔”；2 层 0402 空间不足时 1 个紧贴焊盘的过孔或直连地铜"
+  tags: [cat-feeder]
+
+- id: GEN-PLC-004
+  title: 电源电流必须穿过去耦电容焊盘再到引脚
+  domain: general
+  stage: placement
+  severity: should
+  rule: 电源走线先到电容的电源焊盘、再从该焊盘出到 IC 引脚，不允许从电源线上 T 形分支出一条带电容的短桩；电容与引脚之间不加过孔。
+  rationale: 电容挂在分支末端时，高频电流仍可经主电源线流向引脚，电容起不到应有的旁路作用，分支也增加回路面积。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：按网络建铜连通图"
+      check: "对每个去耦电容的电源焊盘和对应 IC 电源引脚，检查电源网络从稳压器 / 入口到该引脚的最短铜路径是否经过该电容焊盘（或与电容焊盘距离 ≤ 焊盘宽度）；该电容与引脚之间的连接中过孔数应为 0；违规则报告"
+      automatable: partial
+    - method: review
+      tool: "布局评审"
+      check: "对照 SCAA082A 图 12（Poor / Good Bypassing）逐个电源引脚检查"
+      automatable: manual
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.4 Decoupling Capacitors, Figure 12"
+  confidence: medium
+  applies_to: [mcu, qfn]
+  tags: [cat-feeder]
+
+- id: GEN-PLC-005
+  title: 电源入口和稳压器处放大电容，模块进线前放 10 µF
+  domain: general
+  stage: placement
+  severity: should
+  rule: 外部电源进入板子的连接器引脚旁放大容量电容（含一个 10 µF 级电容并联 100 nF）；稳压器输入输出各放其数据手册要求的电容；电源走线进入 MCU / 模块前再放一个 10 µF；入口离模块电源脚较远时，两处都要放 10 µF。
+  rationale: 大电容吸收电缆上的瞬变和负载阶跃，防止电源线上的电流瞬变沿线传导；入口与芯片之间走线的电感使远端的小电容不足以应付芯片的瞬时需求。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取电源入口连接器电源焊盘，找同网络最近的 ≥ 10 µF 电容，量焊盘间距离，通过判据 ≤ 项目设定值（建议 ≤ 10 mm，经验阈值）；对模块 / MCU 的电源引脚同样检查是否有 10 µF 在其入口"
+      automatable: full
+    - method: bench
+      tool: "示波器 + 电子负载 / 电机启动"
+      check: "在电机堵转 / 启动或 Wi-Fi 发射峰值时测 3V3 与 VIN 的最低值，通过判据：3V3 最低值 ≥ MCU / 模块数据手册规定的最低供电电压 + 余量"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply: 10 µF before the power trace enters the chip"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.4; §2.3 Board Zoning"
+  confidence: medium
+  applies_to: [mcu_board, ldo]
+  parameters:
+    - name: entry_bulk_capacitor
+      op: ">="
+      value: 10
+      unit: uF
+      note: "Espressif：芯片电源入口前 10 µF，可并联 0.1 或 1 µF"
+  tags: [cat-feeder]
+
+- id: GEN-PLC-006
+  title: 晶振贴近 MCU，走线短且对称，周围有地环
+  domain: general
+  stage: placement
+  severity: should
+  rule: 晶振和负载电容尽量贴近 MCU 的 OSC 引脚，两条走线短而对称（两个负载电容相对称），晶振及其走线周围用接地保护环（guard ring）包围；金属壳晶振外壳不接振荡器地。
+  rationale: 长走线既是天线又增加杂散电容，影响起振与频率稳定；保护环减少外来噪声耦合；这是 EMC 测试里常见的失败点。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取 OSC_IN / OSC_OUT 两条网络的走线长度 L1、L2 与过孔数；通过判据：L1、L2 ≤ 项目设定值（建议 ≤ 10 mm，经验阈值）且 |L1−L2| ≤ 20%（经验阈值），过孔数 = 0；检查 CL1 / CL2 到晶振的距离对称"
+      automatable: full
+    - method: bench
+      tool: "示波器 + 低电容探头（10 MΩ / <1 pF）或频率计"
+      check: "测上电到振荡稳定的启动时间与输出频率偏差，通过判据：启动时间 ≤ 数据手册典型值，频率偏差在晶振 ppm 容差内；探头不要直接挂振荡引脚，用时钟输出引脚代替"
+      automatable: manual
+  sources:
+    - title: "AN2867 Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs"
+      url: "https://www.st.com/resource/en/application_note/an2867-guidelines-for-oscillator-design-on-stm8afals-and-stm32-mcusmpus-stmicroelectronics.pdf"
+      publisher: "STMicroelectronics"
+      kind: app_note
+      section: "§7.1 PCB design guidelines（读的是 Rev 13；该节针对 32 kHz 振荡器，同样适用于一般晶振）"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Crystal"
+    - title: "Hardware design with RP2040"
+      url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
+      publisher: "Raspberry Pi"
+      kind: vendor_guide
+      section: "§2.3 Crystal oscillator"
+  confidence: high
+  applies_to: [crystal, mcu]
+  conflicts: "本板用 ESP32-C3 模块，晶振在模块内，板上没有 OSC 走线；本条为板上有分立晶振时的基线。ST 的“保护环”与 Espressif 的“时钟走线周围密地过孔 / 地铜”是同一思路。"
+
+- id: GEN-PLC-007
+  title: 晶振周围留出隔离区，不放无关元件
+  domain: general
+  stage: placement
+  severity: consider
+  rule: 晶振 / 振荡回路周围不放无关元件（尤其电感、磁珠、开关器件、高速信号），晶振下方不走任何信号；EMI 关键的 2 层板上，无关元件离晶振至少 25.4 mm（1 英寸）。
+  rationale: 多数晶振相关的 EMI 串扰问题出在受扰线离晶振太近；晶振谐波可以耦合到附近的电感和其他元件上并传播出去。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个晶振，枚举所有与它无电气关联的元件，量晶振外包框到其外包框最短距离，并检查晶振 courtyard 内是否有他网络的走线 / 过孔；通过判据：没有他网络走线 / 过孔进入晶振 courtyard，无关元件间距 ≥ 项目设定值（TI 给 25.4 mm，紧凑板按评估放宽）"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则"
+      check: "(rule xtal_keepout (condition \"A.intersectsCourtyard('Y1') && !A.hasNetclass('Clock')\") (constraint disallow track via zone)) —— Y1 为晶振位号；Clock 网络类包含 OSC 网络"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.1 RF Sources; §2.4.1"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Crystal"
+  confidence: medium
+  applies_to: [crystal]
+  parameters:
+    - name: unrelated_component_to_crystal
+      op: ">="
+      value: 25.4
+      unit: mm
+      note: "TI SZZA009 §2.4.1，针对 EMI 严格的 2 层板；紧凑板难以满足，需评估后放宽"
+  conflicts: "TI 的 1 英寸（25.4 mm）距离出自 1999 年的 2 层板指南，现代小板几乎做不到；Espressif 与 ST 只要求走线短、周围地铜、下方无信号，不给无关元件的最小距离。取舍：禁布线 / 过孔进入晶振区按 should 严执行，25.4 mm 作为可放宽的目标。"
+
+- id: GEN-PLC-008
+  title: 串联电阻靠近驱动端放置
+  domain: general
+  stage: placement
+  severity: consider
+  rule: 为抑制振铃或降低边沿速率加的串联电阻（SPI 时钟、UART TX、MCU 输出口），放在驱动端 IC 引脚旁，尽量压在 MCU 地铜上；通向电缆或超过 1 英尺的走线、出现振铃的信号必须有串联端接。
+  rationale: 串联端接要在源端起作用，电阻离驱动越远，电阻前面那段走线就越长地承载未衰减的快边沿；放在远端则起不到阻尼作用。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载"
+      automatable: full
+    - method: si_sim
+      tool: "IBIS 或 ngspice：驱动 + 走线 + 输入电容"
+      check: "对 > 1 英尺的走线或通向电缆的信号做瞬态仿真，过冲 / 下冲 ≤ 器件绝对最大额定值裕量"
+      automatable: partial
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.5 Keeping Noise Close to the Chip; §2.4.3 Series Termination"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Flash; UART（串联电阻靠近芯片）"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.3.2 Characteristic Impedance, Reflections, and Termination"
+  confidence: medium
+  applies_to: [mcu_board]
+  parameters:
+    - name: output_series_resistance
+      op: range
+      value: [50, 100]
+      unit: ohm
+      note: "TI SZZA009 §2.2.5：每个输出脚串 50~100 Ω，输入脚 35~50 Ω；该节明确不要用于振荡器引脚；会增加元件数，按需选择"
+    - name: termination_required_trace_length
+      op: ">"
+      value: 304.8
+      unit: mm
+      note: "TI SZZA009 §2.4.3：走线超过 1 英尺、通向屏蔽外壳外的电缆、或出现振铃时要端接"
+  tags: [cat-feeder]
+
+- id: GEN-PLC-009
+  title: ESD / TVS 器件紧靠连接器，保护对象放得更远
+  domain: general
+  stage: placement
+  severity: should
+  rule: TVS / ESD 阵列放在设计规则允许的最靠近连接器处，被保护的 IC 离 TVS 比 TVS 离连接器远得多；信号线先到 TVS 保护引脚、再去 IC。
+  rationale: ESD 电流 di/dt 极大（8 kV 接触放电约 30 A / 0.8 ns），每 0.25 nH 电感就多出约 10 V；让连接器到 TVS 的电感远小于 TVS 到 IC 的电感，电流自然被引向 TVS，也把辐射限制在连接器附近。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个被 TVS 保护的连接器信号，量 d1 = 连接器焊盘到 TVS 信号焊盘距离，d2 = TVS 信号焊盘到被保护 IC 引脚距离；通过判据：d1 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）且 d2 ≥ 3×d1（比例为经验阈值，SLVA680 只要求 d2 远大于 d1）"
+      automatable: full
+    - method: emc_precompliance
+      tool: "ESD 模拟枪（IEC 61000-4-2），示波器 / 电流靶"
+      check: "对连接器接触放电 ±4 kV 起逐级测试，观察受保护引脚的钳位波形与系统是否复位 / 损坏；通过判据：系统无损坏，钳位尖峰 < IC 引脚绝对最大额定值"
+      automatable: manual
+  sources:
+    - title: "ESD Protection Layout Guide (SLVA680A)"
+      url: "https://www.ti.com/lit/an/slva680/slva680.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1 Optimizing Impedance for Dissipating ESD"
+  confidence: high
+  applies_to: [connector, tvs, esd]
+  parameters:
+    - name: tvs_to_connector_distance
+      op: minimize
+      value: null
+      unit: mm
+      note: "SLVA680A：尽可能近；0.25 nH 约 10 V（8 kV IEC 61000-4-2：30 A / 0.8 ns）"
+  conflicts: "EMC / ESD 文件会写更详细的规则；本条只覆盖通用 MCU 板的布局基线。"
+  tags: [cat-feeder]
+
+# ───────────────────────── routing ─────────────────────────
+
+- id: GEN-RTE-001
+  title: 每条信号线下方保持连续的回流参考铜
+  domain: general
+  stage: routing
+  severity: should
+  rule: 对时钟、PWM、SPI、开关节点等快边沿信号，沿整条走线在其正下方（相邻层）保持连续的 GND（或 PWR）铜，参考铜向走线两侧至少延伸 2h、推荐 5h（h 为走线到参考平面的介质厚度）。
+  rationale: 高频回流走阻抗最低路径，即信号线正下方的平面；回流电流分布在走线两侧，约 70% 在 ±2h 内，87% 在 ±5h 内，94% 在 ±10h 内。回流被切断就必须绕行，形成大环路，辐射与串扰随环路面积增大。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：取参考层 zone 填充多边形（zone.GetFilledPolysList）"
+      check: "对 Clock / PWM / 高速网络的每个走线段每 0.5 mm 取采样点，在其参考层（2 层板为对面铜层；多层板为相邻平面层）查点是否落在 GND 填充内，且以采样点为中心 ±2h 范围的填充覆盖率 ≥ 90%；通过判据：违规采样点占比 ≤ 5%（占比阈值为经验值）。h 取叠层介质厚度（JLC 1.6 mm 2 层板约 1.5 mm）"
+      automatable: full
+    - method: emc_precompliance
+      tool: "近场磁场探头 + 频谱仪"
+      check: "沿时钟 / PWM 走线扫描磁场，回流不连续处（跨槽、过孔处）出现的局部强点即问题位置；整改前后对比降低量 ≥ 6 dB 视为有效（经验判据）"
+      automatable: manual
+  sources:
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+      section: "return-current distribution (x/h table)"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.6 Return Current and Loop Areas"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.4 Basic Loops; §2.1.4 Signal Return Grounds"
+  confidence: high
+  applies_to: [2_layer, 4_layer]
+  parameters:
+    - name: return_plane_margin_70pct
+      op: ">="
+      value: 2
+      unit: "multiple of h"
+      note: "Ott：x/h=2 时约 70% 回流在 ±x 内"
+    - name: return_plane_margin_87pct
+      op: ">="
+      value: 5
+      unit: "multiple of h"
+      note: "Ott：x/h=5 时约 87%；x/h=10→94%，20→97%"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-002
+  title: 信号线不得跨越参考平面的分割槽或缝隙
+  domain: general
+  stage: routing
+  severity: must
+  rule: 任何信号线都不得跨越其参考地 / 电源平面上的分割、槽或缺口；无法避免的跨越必须走在桥接位置上方或改用隔离 / 差分方式。跨越分割的电源平面时，走线所在层必须邻接完整地平面。
+  rationale: 跨槽使回流无法贴着信号走，形成大环路并把噪声注入另一个平面，辐射和串扰急剧增大；槽本身还会成为缝隙天线。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：参考层 zone 填充 + 走线几何"
+      check: "对所有非电源网络的每个走线段，取其中点所在位置在参考层的填充：若不在任何 GND 填充内（或线段穿越填充边界），则标为“跨槽”；通过判据：跨槽线段数 = 0（桥接位置白名单除外）"
+      automatable: full
+    - method: bench
+      tool: "示波器 / 近场探头，对比实验"
+      check: "Ott 建议的对比：先按“不跨槽”布出分割地板，再用 0 Ω 电阻或跳线（约每 1/2 英寸一个）把两块地连起来，测功能与 EMC，对比分割 / 不分割的结果"
+      automatable: manual
+  sources:
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.6; §2.3 Power and Ground Planes"
+    - title: "7 PCB Design Guidelines for EMI and EMC"
+      url: "https://www.protoexpress.com/blog/7-pcb-design-tips-solve-emi-emc-issues/"
+      publisher: "Sierra Circuits"
+      kind: blog
+  confidence: high
+  applies_to: [2_layer, 4_layer, mixed_signal]
+  tags: [cat-feeder]
+
+- id: GEN-RTE-003
+  title: 信号换层时在过孔旁放地过孔提供回流
+  domain: general
+  stage: routing
+  severity: should
+  rule: 信号线换层且参考平面随之改变（或经过孔穿过地铜）时，在该信号过孔旁就近加地过孔（缝合过孔）；若信号过孔穿过的是连续不间断的同一参考平面，则不需要。
+  rationale: 换层使回流需要在不同平面间跳转，没有紧邻的地过孔就得绕远路，形成环路；地过孔相当于同轴结构的外导体。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个信号类过孔（非 GND、非电源），找最近的 GND 过孔，量中心距；通过判据：距离 ≤ 项目设定值（建议 ≤ 2.5 mm，经验阈值）；若过孔两端参考同一平面（2 层板上底层为 GND 铺铜时，信号过孔打穿地铜形成孔洞，也要在旁补地过孔）则豁免条件另行登记"
+      automatable: partial
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.5 Traces, Vias, and Other PCB Components（Figure 14）"
+    - title: "7 PCB Design Guidelines for EMI and EMC"
+      url: "https://www.protoexpress.com/blog/7-pcb-design-tips-solve-emi-emc-issues/"
+      publisher: "Sierra Circuits"
+      kind: blog
+      section: "Stitching vias"
+  confidence: medium
+  applies_to: [4_layer, 2_layer]
+  tags: [cat-feeder]
+
+- id: GEN-RTE-004
+  title: 电源线与地线并行贴近，环路长宽比不超过 3:1
+  domain: general
+  stage: routing
+  severity: should
+  rule: 2 层板上电源与地并行布线，让电源走线正好在地线（或地铜）的正上方；IC 到电源之间的电源和地走线，长度与宽度之比不超过 3:1。
+  rationale: 电感随长度增加、随宽度缓慢减小；电源线的电感在开关电流下产生会传播和辐射的压降。电源与地重叠减小环路面积。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个 IC 的电源网络，沿从稳压器 / 去耦电容到 IC 电源引脚的连接取每段走线的长度 / 宽度比（宽度取该段最窄处），通过判据 ≤ 3；并检查该段正下方相邻层有无 GND 铜（≥ 90% 长度，经验阈值）"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.1 Inductance"
+  confidence: high
+  applies_to: [2_layer, mcu_board]
+  parameters:
+    - name: power_ground_trace_length_to_width
+      op: "<="
+      value: 3
+      unit: ratio
+      note: "TI：两层板，IC 到电压源之间的电源和地走线"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-005
+  title: 电源分配单点或星形，别串成菊花链
+  domain: general
+  stage: routing
+  severity: should
+  rule: 电源从稳压器 / 入口大电容出发，用各自独立的支路分别供给 MCU、模块与电机等负载，在源头单点汇合；不让一个负载的电源走线串联穿过另一个负载。
+  rationale: 菊花链（多点）让后级共用前级的走线阻抗，噪声通过共阻抗耦合；单点最佳，星形次之，多点最差（对信号线则星形最优）。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：按网络建铜连通图"
+      check: "以稳压器输出 / 入口电容为根，构造电源网络的树；对每个负载（MCU 电源、电机驱动、传感器）取从根到它的路径；通过判据：不同负载的路径只在根（入口电容焊盘）处共享，共享走线段长度 ≤ 1 个走线宽度；噪声负载（电机驱动）与敏感负载（MCU、模拟）不共用走线"
+      automatable: partial
+    - method: bench
+      tool: "示波器"
+      check: "电机启动时测 MCU 3V3 引脚电压跌落，对比星形与链式；通过判据：跌落 < MCU 供电容差的一半"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.1 Single-Point vs Multipoint; §2.2.2 Star Distribution, Figure 6"
+  confidence: high
+  applies_to: [mcu_board, motor_driver]
+  conflicts: "TI 的 Figure 6 对“电源线”认为单点最佳、星形次之、多点最差，对“信号线”认为星形最佳。本条只讨论电源。实际 2 层小板上完全单点难做到，TI 也建议“产生 RF 的器件单点、其余多点”的折中。"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-006
+  title: MCU 供电走线按厂商给的最小宽度
+  domain: general
+  stage: routing
+  severity: consider
+  rule: 以 ESP32-C3 厂商指南为例：3.3 V 主电源走线宽度 ≥ 25 mil（0.635 mm），VDD3P3 走线 ≥ 20 mil（0.508 mm），其他电源走线推荐 10 mil（0.254 mm）；电源走线跨层至少 2 个过孔。其他 MCU 以各自指南为准，不低于按电流算出的宽度（GEN-STK-007）。
+  rationale: 无线类芯片的发射瞬间电流大，供电走线阻抗过高会拉低芯片引脚电压，造成复位或射频性能变差。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对 3V3 主网络的走线段最窄宽度取 min，应 ≥ 0.635 mm（模块板为 3V3 到模块电源引脚之间的走线）；其它电源网络 ≥ 0.254 mm；跨层处并联过孔 ≥ 2"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则"
+      check: "(rule v3p3_width (condition \"A.hasNetclass('Power3V3')\") (constraint track_width (min 0.635mm)))"
+      automatable: full
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply"
+  confidence: high
+  applies_to: [esp32, wifi_module]
+  parameters:
+    - name: main_3v3_trace_width
+      op: ">="
+      value: 0.635
+      unit: mm
+      note: "Espressif：3.3 V main power traces at least 25 mil（四层板章节；2 层板章节未给宽度）"
+    - name: vdd3p3_trace_width
+      op: ">="
+      value: 0.508
+      unit: mm
+      note: "Espressif：20 mil"
+    - name: other_power_trace_width
+      op: ">="
+      value: 0.254
+      unit: mm
+      note: "Espressif：推荐 10 mil"
+  conflicts: "这些宽度出自 ESP32-C3 芯片的四层板章节；cat-feeder 板用的是 ESP32-C3-WROOM-02 模块 + 2 层板，模块内部已含芯片供电，板上只需把 3V3 以不低于该宽度送到模块电源脚。"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-007
+  title: 拐角默认用 45° 或圆弧，90° 并非一概有害
+  domain: general
+  stage: routing
+  severity: consider
+  rule: 默认用 45° 或圆弧拐角（无额外成本）；对射频、可控阻抗快速线、ESD 保护路径（连接器到 TVS）严格禁用 90° 拐角；对普通低速 MCU 信号，90° 拐角不是信号完整性问题。拐角是否影响信号：线宽（mil）> 5 × 上升时间（ps）时才值得担心。
+  rationale: 拐角处多出约半个方块的金属，附加约 2 fF/mil × 线宽的电容，产生微小反射；对 4~8 mil 线宽和纳秒级边沿几乎不可见。但在 ESD 这种 ~800 ps 上升沿、数十 A 的路径上，90° 拐角处场强集中，辐射明显更强。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：遍历相连的 PCB_TRACK 对"
+      check: "对每对共端点的线段计算方向变化角，转角 ≥ 80° 视为 90° 拐角；通过判据（严格集合：RF / 快速 / ESD 路径网络类）：90° 拐角数 = 0；普通网络仅报告数量不判失败"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则 track_angle 约束"
+      check: "(rule no_right_angle (condition \"A.hasNetclass('ESD_Path') || A.hasNetclass('RF')\") (constraint track_angle (min <阈值>deg))) —— KiCad 文档未定义“角度”的取值惯例（直线是 180° 还是 0°），先用含已知 90° 拐角的测试板确认惯例再填阈值"
+      automatable: partial
+    - method: bench
+      tool: "TDR（上升时间 ≤ 40 ps）"
+      check: "Bogatin 用 40 ps 上升时间的 TDR 在 60 mil 线的拐角上测得附加电容约 96 fF（经验公式估算 120 fF）；在自己板上做同样测量可验证 5×rise 判据"
+      automatable: manual
+  sources:
+    - title: "When to worry about trace corners: Rule of Thumb #24 (E. Bogatin)"
+      url: "https://www.edn.com/when-to-worry-about-trace-corners-rule-of-thumb-24/"
+      publisher: "EDN"
+      kind: paper
+    - title: "ESD Protection Layout Guide (SLVA680A)"
+      url: "https://www.ti.com/lit/an/slva680/slva680.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2 Limiting EMI from ESD"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.5（Figure 13）"
+    - title: "PCB Routing Angle Myths: 45-degree Angle Vs 90-degree Angle"
+      url: "https://resources.altium.com/p/pcb-routing-angle-myths-45-degree-angle-versus-90-degree-angle"
+      publisher: "Altium"
+      kind: blog
+  confidence: high
+  applies_to: [routing]
+  parameters:
+    - name: corner_excess_capacitance
+      op: "=="
+      value: 2
+      unit: "fF per mil of line width"
+      note: "Bogatin 经验值（推导得 1.6 fF/mil，取整为 2）；60 mil 线的拐角估算约 120 fF，其 TDR 实测约 96 fF"
+    - name: corner_matters_when
+      op: qualitative
+      value: null
+      unit: "-"
+      note: "线宽(mil) > 5 × 上升时间(ps)。例：10 ps 上升时 50 Ω 线宽 > 50 mil 才受影响；100 ps → 500 mil"
+    - name: esd_path_max_corner
+      op: "<="
+      value: 45
+      unit: deg
+      note: "TI SLVA680A：连接器到 TVS 路径若必须拐弯，优先圆弧，最大 45°"
+  conflicts: "TI SCAA082A 建议避免直角（至少两个 45° 或圆弧）；Bogatin 和 Altium 指出对普通数字线它们只是约几 fF 的电容，不值得担心；TI SLVA680A 又把 ESD 路径上的 90° 拐角描述为强辐射源（电场在拐角集中，8 kV 下半径小于约 2.6 mm 会电离）。三者前提不同：普通低速线 / 高速可控阻抗线 / ESD 大 di/dt 路径。取舍：默认 45° 或圆弧，仅对后两类严格；不把“90° 一律有害”当规则。"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-008
+  title: 快信号避免 T 形分支和长残桩
+  domain: general
+  stage: routing
+  severity: should
+  rule: 时钟和快速信号做成点对点或链式（干线上只有极短的引出），不使用 T 形分支；同一信号经过多层过孔时，不要留下穿过整板的过孔残桩。
+  rationale: 分支处发生阻抗突变和反射，分支到各器件的延时也不同；过孔穿过的多余部分相当于开路传输线，在 1/4 波长处造成零点。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew：按网络建连通图"
+      check: "对 Clock 类网络计算图中度 ≥ 3 的节点（分支点），并量每个引出段长度；通过判据：时钟网络分支点数 = 0，或引出段长度 ≤ 项目设定值（建议 ≤ 2 mm，经验阈值）"
+      automatable: full
+    - method: si_sim
+      tool: "ngspice / IBIS 瞬态"
+      check: "对多负载时钟仿真，各接收端的过冲和单调性满足输入阈值，且最慢边沿时间满足建立 / 保持"
+      automatable: partial
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.6 Clock Distribution; §2.5（Figure 16 via stub）"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "RF（走线无分支）"
+  confidence: high
+  applies_to: [clock, fast_signals]
+
+- id: GEN-RTE-009
+  title: 敏感信号和时钟尽量不打过孔
+  domain: general
+  stage: routing
+  severity: should
+  rule: 时钟、晶振、复位、射频、模拟小信号等敏感网络尽量全程同层布线、不打过孔；晶振时钟输入 / 输出走线上不放过孔。
+  rationale: 过孔引入电感和电容、造成阻抗突变和反射，并增加走线长度，还会让回流换层。
+  verify:
+    - method: drc
+      tool: "KiCad 自定义规则 via_count"
+      check: "(rule no_via_clock (condition \"A.hasNetclass('Clock') || A.hasNetclass('Sensitive')\") (constraint via_count (max 0))) —— 个别确需换层的网络在规则里按网络名排除，并配套执行 GEN-RTE-003"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "统计各敏感网络的过孔数，晶振 OSC 网络必须为 0"
+      automatable: full
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.5 Tips for routing traces and the use of vias"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Crystal; RF"
+  confidence: high
+  applies_to: [clock, crystal, sensitive_analog]
+  parameters:
+    - name: vias_on_crystal_clock_traces
+      op: "=="
+      value: 0
+      unit: count
+      note: "Espressif：Do not place vias on the clock input and output traces"
+
+- id: GEN-RTE-010
+  title: 干扰源与敏感线间距至少 3 倍线宽
+  domain: general
+  stage: routing
+  severity: should
+  rule: 时钟、PWM、开关等干扰线与敏感线（复位、采样输入、模拟小信号）平行走线时，边到边间距 ≥ 3 倍线宽（3W）；平行长度很短或参考平面很近时可小于 3W，但不低于 2 倍线宽。
+  rationale: 串扰随平行长度、频率、电压摆幅增大，随间距增大而减小；3W 是偏保守的经验值，适合走线与地平面距离较大的板子。
+  verify:
+    - method: drc
+      tool: "KiCad 自定义规则 clearance"
+      check: "按网络类写规则，例如 0.2 mm 线宽的 Clock 网络类：(rule clock_3w (condition \"A.hasNetclass('Clock') && !B.hasNetclass('Clock')\") (constraint clearance (min 0.6mm)))；DRC 0 error"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew：计算平行段"
+      check: "对 Clock / PWM 网络与 Sensitive 网络的每对走线，找平行（夹角 < 10°）且间距 < 3W 的段，累计长度；通过判据：累计长度 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）"
+      automatable: full
+    - method: bench
+      tool: "示波器"
+      check: "让干扰线持续翻转，测受害线上的串扰幅度，通过判据：串扰峰值 < 受害输入的噪声容限的 1/4（经验判据）"
+      automatable: manual
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.4 Crosstalk; §2.5 tips"
+    - title: "Crosstalk Analysis, Reduction, and Elimination Techniques in PCB Design"
+      url: "https://resources.altium.com/p/crosstalk-elimination-techniques-in-altium-designer"
+      publisher: "Altium"
+      kind: blog
+    - title: "Handling Crosstalk in High-Speed PCB Design"
+      url: "https://www.protoexpress.com/blog/crosstalk-high-speed-pcb-design/"
+      publisher: "Sierra Circuits"
+      kind: blog
+  confidence: medium
+  applies_to: [mcu_board, mixed_signal]
+  parameters:
+    - name: aggressor_victim_spacing
+      op: ">="
+      value: 3
+      unit: "multiple of trace width"
+      note: "Altium / Sierra Circuits 的 3W；边到边口径较保守（中心到中心 3W 仅约 2W 净间距）"
+    - name: absolute_min_spacing
+      op: ">="
+      value: 2
+      unit: "multiple of trace width"
+      note: "TI SCAA082A：至少 2 倍线宽；§2.5 提示取 2~3 倍"
+    - name: critical_traces_guarded_spacing
+      op: ">="
+      value: 3
+      unit: "multiple of trace width"
+      note: "Sierra：关键线之间 3W~5W（取 3~5）并配合接地保护线"
+  conflicts: "3W 的度量口径各来源不同：多数说边到边，有说中心到中心；Altium 指出板子参考平面更近（介质更薄）时可以小于 3W，而间距实际取决于走线到平面的距离。取舍：边到边 3W 作保守值，平面很近时可降到不低于 2W（TI），并以仿真 / 实测验证。"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-011
+  title: 相邻走线层垂直布线，但 2 层板优先保证回流
+  domain: general
+  stage: routing
+  severity: consider
+  rule: 两个相邻走线层之间有或没有平面时分别处理：中间隔着完整平面的相邻层，让走线方向相互垂直以减小层间耦合；没有平面的 2 层板，则以“回流紧贴信号”优先，底层主要做地铜，不为垂直而牺牲地。
+  rationale: 平行走线在相邻层之间耦合，垂直布线最小；但 2 层板本身没有平面，垂直网格会让返回路径离开信号线正下方。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "仅对双面都走信号的板：统计顶层与底层平行（夹角 < 10°）且重叠（正投影重叠宽度 > 0）的信号段长度，通过判据：重叠长度 ≤ 项目设定值；同时对高速 / 时钟线保留回流检查（GEN-RTE-001）"
+      automatable: partial
+  sources:
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.5 Tips for routing traces and the use of vias"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.3 Gridding to Create Planes"
+  confidence: medium
+  applies_to: [2_layer, 4_layer]
+  conflicts: "SCAA082A 建议相邻层垂直布线以减少串扰；SZZA009 §2.2.3 却指出：顶层走线多为竖向、底层多为横向，这本来就与“让回流直接在信号线正下方”相悖。前者面向有平面的高速板，后者面向 2 层板。取舍：有平面时垂直，2 层板以回流为先。"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-012
+  title: 噪声走线不放在板子最外沿
+  domain: general
+  stage: routing
+  severity: consider
+  rule: 时钟、PWM 等噪声大的走线不走在板子最外沿，离板边留出距离；可能成为受害者的线远离连接器、晶振、继电器 / 电机驱动。
+  rationale: 板边的走线更容易向外辐射、边缘处回流平面也不完整；靠近连接器的线最容易拾取或传出噪声。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取 Clock / PWM / Switching 网络走线到 Edge.Cuts 的最短距离，通过判据 ≥ 项目设定值（建议 ≥ 3 mm，经验阈值）；回流平面（GND 铜）应延伸到走线外至少 2h（见 GEN-RTE-001）"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.4.1 Capacitive and Inductive Crosstalk"
+    - title: "7 PCB Design Guidelines for EMI and EMC"
+      url: "https://www.protoexpress.com/blog/7-pcb-design-tips-solve-emi-emc-issues/"
+      publisher: "Sierra Circuits"
+      kind: blog
+  confidence: medium
+  applies_to: [mcu_board]
+  conflicts: "只有 TI 的定性表述（“绝不让噪声线跑在板子外沿”），没有给距离；板边距离是本库的经验阈值。20H 一类规则属 EMC 文件范围。"
+
+- id: GEN-RTE-013
+  title: 晶振下方不走信号，时钟走线周围用地包裹
+  domain: general
+  stage: routing
+  severity: should
+  rule: 晶振下方不走任何信号线（最好完全不走线）；时钟走线两侧和附近用地铜包围并加地过孔，电源过孔离时钟线尽量远；高频信号（USB、UART、SPI 时钟）远离晶振走线；晶振和时钟网络上不挂测试点。
+  rationale: 晶振信号微弱且杂散电容敏感，旁边的快边沿会耦合进来；测试点和长引线增加杂散电容与天线效应，ST 在其坏例子里就把“测试点太多”列为问题。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取晶振 courtyard 区域，检查所有层中是否存在非 OSC / GND 网络的走线、过孔、铜皮；检查 OSC 网络上的测试点焊盘（Fabrication_Property == 'Test point pad' 或位号 TP*）数量必须为 0；通过判据：违规项 = 0"
+      automatable: full
+    - method: drc
+      tool: "KiCad 自定义规则"
+      check: "(rule xtal_no_signals (condition \"A.intersectsCourtyard('Y1') && !A.hasNetclass('Clock') && A.NetName != 'GND'\") (constraint disallow track via)) —— Y1 为晶振位号"
+      automatable: full
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Crystal"
+    - title: "AN2867 Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs"
+      url: "https://www.st.com/resource/en/application_note/an2867-guidelines-for-oscillator-design-on-stm8afals-and-stm32-mcusmpus-stmicroelectronics.pdf"
+      publisher: "STMicroelectronics"
+      kind: app_note
+      section: "§7.1–7.2（Rev 13）"
+  confidence: high
+  applies_to: [crystal]
+  conflicts: "ST AN2867 §7.1 要求晶振下有专用的局部地平面（与应用板地分开、连到最近的 MCU 地），Espressif 则要求晶振下方是整片完整 GND 平面且周围 clean ground；两者对“下方铺地”一致，差别在是否与大地分开。见 GEN-PLN-010。"
+
+- id: GEN-RTE-014
+  title: 连接器先到 TVS 再到 IC，路径短直无桩无过孔
+  domain: general
+  stage: routing
+  severity: should
+  rule: 受保护信号从连接器直接走到 TVS 保护引脚，再去被保护 IC；连接器到 TVS 之间不打过孔、不接桩线、拐角不超过 45°（优先圆弧），不让未受保护的走线紧邻这段路径；TVS 地焊盘直接接同层地铜，并在紧邻其地引脚处加过孔缝合到相邻地层。
+  rationale: ESD 脉冲 di/dt 极大，路径上每一点电感都变成钳位电压的一部分；TVS 前的路径是主要辐射源，旁边的未保护线会被感应出电流而损坏器件；先到 TVS 再经过孔才能保证电流先被引向 TVS。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足"
+      automatable: full
+    - method: emc_precompliance
+      tool: "ESD 枪 + 示波器"
+      check: "接触放电 ±4 kV 起，对比 TVS 前后波形；受保护 IC 引脚钳位峰值 < 其绝对最大额定值"
+      automatable: manual
+  sources:
+    - title: "ESD Protection Layout Guide (SLVA680A)"
+      url: "https://www.ti.com/lit/an/slva680/slva680.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1–2.4"
+  confidence: high
+  applies_to: [connector, tvs, esd]
+  parameters:
+    - name: connector_to_tvs_vias
+      op: "=="
+      value: 0
+      unit: count
+      note: "SLVA680A：尽量避免；必须换层时，先到 TVS 再过孔（Case 1）"
+    - name: connector_to_tvs_max_corner
+      op: "<="
+      value: 45
+      unit: deg
+      note: "SLVA680A：优先圆弧，45° 为可接受的最大角"
+  tags: [cat-feeder]
+
+- id: GEN-RTE-015
+  title: 快速信号走线长度限制在约 1/50 波长以内
+  domain: general
+  stage: routing
+  severity: consider
+  rule: 无屏蔽的消费 / 汽车类 2 层板上，时钟及其他快边沿线的走线长度应小于约 1/50 波长（例如超过 4 英寸 ≈ 100 mm 的线对 FM 频段噪声就可能成为问题）；超长时缩短或加串联端接。
+  rationale: 走线和环路的辐射效率随长度增大，直到 1/4 波长；对商用限值走线长于 λ/10 开始重要，对更严的车规和无屏蔽 2 层板，λ/50 就开始重要。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取 Clock / PWM / 快边沿网络的走线总长，通过判据 ≤ 101.6 mm；超出的网络需登记串联端接（见 GEN-PLC-008）或豁免理由"
+      automatable: full
+    - method: emc_precompliance
+      tool: "近场探头 + 频谱仪"
+      check: "对超长线在 FM 频段（88~108 MHz）及其谐波做扫描，通过判据：低于目标限值"
+      automatable: manual
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§1.4.1 Proportionality of Loops and Dipoles; §2.4.2 Antenna Factor Length Rules"
+  confidence: high
+  applies_to: [mcu_board, 2_layer]
+  parameters:
+    - name: fast_trace_max_length
+      op: "<="
+      value: 101.6
+      unit: mm
+      note: "TI：消费 / 汽车类 2 层板 λ/50 起重要，对应 FM 频段超过 4 英寸的线"
+  conflicts: "TI 的阈值来自 1999 年的 2 层板指南并以 FM 频段为例；FCC 用 λ/10、军标 λ/20~λ/30。不同产品应以实际 EMC 目标频段重算。"
+
+# ───────────────────────── plane_pour ─────────────────────────
+
+- id: GEN-PLN-001
+  title: 先保证完整地平面，地层不走线、不被过孔排切成槽
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 地参考层（4 层板的 L2，2 层板的底层）除不可避免的极短跳线外不走信号线；平面上的孔、反焊盘、引脚排不得连成长槽——相邻孔 / 反焊盘之间保留铜桥，必须埋线时绕板周边走或放在电源平面里。
+  rationale: 平面上的缺口增大回流环路面积；一排 100 mil 间距的通孔会把平面割成槽，既增加环路又聚焦槽缝辐射。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "①在地参考层统计非 GND 网络的走线长度，4 层板通过判据 = 0，2 层板 ≤ 项目登记的跳线总长；②对该层所有过孔 / 通孔焊盘，计算相邻两个反焊盘（孔径 + 2×间隙）之间的铜桥宽度，通过判据 ≥ 0.3 mm（经验阈值），并检查 GND 填充多边形的最窄颈宽"
+      automatable: full
+    - method: drc
+      tool: "KiCad 区域设置 + 自定义规则"
+      check: "GND 区域的 Minimum width 设 ≥ 0.2 mm 以去掉窄颈；加 (rule no_sig_in_gnd_layer (layer In1.Cu) (condition \"A.NetName != 'GND'\") (constraint disallow track)) —— In1.Cu 为 4 层板的地层"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.7 Power Plane Do's and Don'ts for Four-Layer Boards, Figure 5"
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.5（Figure 15）"
+  confidence: high
+  applies_to: [4_layer, 2_layer]
+  tags: [cat-feeder]
+
+- id: GEN-PLN-002
+  title: 默认用一整块地平面，靠分区而不是分割隔离模拟数字
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 数模混合 MCU 板默认只用一个连续的地平面（GND），通过 GEN-FLR-003 的分区让数字回流不进模拟区；只有低漏电医疗设备、带大功率噪声输出的工业设备，或已经布得很差的板子才考虑分割。
+  rationale: 数字回流本来就停留在数字走线正下方，不会自己跑进模拟区；分割地平面本身并不阻止回流，反而在有信号跨越时造成大环路。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "统计每个铜层上名为 GND / AGND / DGND 的区域数量与是否互相断开，通过判据：每层地区域只有 1 块连通体（允许因为走线造成的次要岛状碎片，另见 GEN-PLN-007）"
+      automatable: full
+    - method: bench
+      tool: "示波器 + 近场探头"
+      check: "Ott 的对比实验：先留出连接两块地的位置（约每 1/2 英寸一个 0 Ω 电阻），先断开后连接，比较 ADC 噪声与 EMC，预期连接后更好"
+      automatable: manual
+  sources:
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Power and Ground Planes, Figure 9"
+    - title: "Grounding Analog-Digital Converters (J. Bryant, ADI lecture, mirror)"
+      url: "http://www.hit.bme.hu/~papay/edu/Acrobat/GndADCs.pdf"
+      publisher: "Analog Devices"
+      kind: app_note
+  confidence: high
+  applies_to: [mixed_signal, mcu_board]
+  conflicts: "分歧：Ott 认为“几乎总是只用单一参考平面更好”，仅在三种场合考虑分割；TI SCAA082A 说数据转换器厂商常建议分开模拟地和数字地，但自己倾向连续平面（分割时要满足 GEN-PLN-003）；ADI Bryant 讲义写道混合信号系统常有分开的模拟 / 数字地平面，在靠近电源处的星形点汇合，但转换器的 AGND 和 DGND 引脚应一起接到模拟地平面（耗流小于 30 mA 或不含大计算的器件），大 DSP 带编解码器是例外（DGND 瞬态 > 100 mA）。三者并不矛盾：关键是不让数字回流进模拟区。本板的 MCU + HX711 模块 + 电机，采用单一地平面 + 分区 + 大电流回流单点（GEN-FLR-004）。"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-003
+  title: 必须分割地时，只在一点连接，信号只能走桥
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 确需分割地时：两块地只在一个位置连接（桥），所有跨区信号都从桥上方经过，使每条线下方都有回流；每个子系统的回流不流经另一个子系统；电源平面只参考自己的地，不与别的地重叠；不在电源平面与无关的地之间接旁路电容。
+  rationale: 多点连接形成地环路并增加辐射；信号越过缺口则回流绕远路，形成大环路并把噪声串入另一个地。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "①两地之间的连接点（0 Ω / 磁珠 / 铜桥）数 = 1；②所有跨越两地边界的信号走线段的中点都落在桥的 ±(桥宽/2) 范围内；③每个电源平面的投影与其他地平面的重叠面积 = 0；④检查旁路电容两端是否在同一地域内。通过判据：①~④全部满足"
+      automatable: partial
+    - method: erc
+      tool: "KiCad ERC 与网络类检查"
+      check: "原理图中 AGND / DGND 之间只有一个连接元件（0 Ω 或磁珠或网络标签）；旁路电容的 GND 引脚与其所在电源同域"
+      automatable: partial
+  sources:
+    - title: "Partitioning and Layout of a Mixed-Signal PCB (H. Ott)"
+      url: "https://www.edn.com/partitioning-and-layout-of-a-mixed-signal-pcb-3/"
+      publisher: "EDN / Printed Circuit Design"
+      kind: paper
+    - title: "High-Speed Layout Guidelines (SCAA082A)"
+      url: "https://www.ti.com/lit/pdf/scaa082"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.3 Power and Ground Planes（If split ground planes are essential）"
+  confidence: high
+  applies_to: [mixed_signal, split_ground]
+  parameters:
+    - name: ground_connection_points
+      op: "=="
+      value: 1
+      unit: count
+      note: "TI：Connect split ground planes only at one point；Ott：桥宽与单个 ADC 同宽，置于 ADC 下方"
+    - name: jumper_interval_in_comparison_test
+      op: "=="
+      value: 12.7
+      unit: mm
+      note: "Ott 对比实验的 0 Ω 跳线间距（1/2 英寸）；仅用于实验，不是设计值"
+
+- id: GEN-PLN-004
+  title: 2 层板用地网格 / 整面地铺铜并多打缝合过孔
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 2 层板把两层所有空白处都铺 GND 铜并连成网格，在顶层走线与底层走线交叉处、地铜的连接处尽量多打地过孔；每块地铜至少两处与其他地铜连接，避免只有一端连的地线或铺铜。
+  rationale: 网格化让每条信号线下方都有地回流，近似 4 层板的地平面；只在一点连接的铺铜只是一个屏蔽层，连接在两点以上才成为导体，成为地网格的一部分。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取每层所有 GND 填充连通区，统计每个连通区被过孔 / 其他层 GND 铜连接的点数；通过判据：每个面积大于项目设定值的 GND 区域连接点数 ≥ 2；另检查顶层信号线与底层信号线交叉点旁 3 mm 内是否有 GND 过孔（经验阈值）"
+      automatable: full
+    - method: drc
+      tool: "KiCad DRC"
+      check: "“Isolated copper fill”类（孤岛）违规数 = 0；“Via is not connected or is connected on only one layer” = 0"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.3 Gridding to Create Planes"
+    - title: "Hardware design with RP2040"
+      url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
+      publisher: "Raspberry Pi"
+      kind: vendor_guide
+      section: "§2.4.1 USB（底层几乎整层是地）"
+  confidence: high
+  applies_to: [2_layer]
+  parameters:
+    - name: ground_fill_connection_points
+      op: ">="
+      value: 2
+      unit: count
+      note: "TI SZZA009：地铜连接在两处以上才算网格的一部分"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-005
+  title: MCU 下方做地岛，去耦和晶振的地接在上面
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 2 层板在 MCU 下方的底层做一块与 MCU 地连接的地岛，范围超出器件外轮廓约 1/4 英寸（≈6.35 mm）；去耦电容、电源滤波和晶振电容的地都接到这块地岛，使环路面积（俯视）最小。
+  rationale: MCU 的噪声电流集中在其电源 / 地引脚与旁路电容之间；让这些回路在同一块地上闭合，噪声不会外泄到更大的地网络。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取 MCU（或模块 GND 焊盘区）外包框向外扩 6.35 mm 形成矩形，计算其内底层 GND 填充面积占比，通过判据 ≥ 90%（占比阈值为经验值）；检查去耦电容 GND 焊盘是否位于该矩形内"
+      automatable: full
+  sources:
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.1.2–2.1.3 Microcomputer Grounds in One- and Two-Layer Designs"
+  confidence: medium
+  applies_to: [2_layer, mcu]
+  parameters:
+    - name: ground_island_margin_beyond_device
+      op: ">="
+      value: 6.35
+      unit: mm
+      note: "TI：about 1/4 inch outside the outline of the device"
+  conflicts: "模块板的天线端下方必须无铜（见 GEN-PLN-009），地岛只覆盖模块的接地焊盘区而不覆盖天线区。"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-006
+  title: 地铜用缝合过孔连接，间距不超过 λ/20
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 顶底层（及内层）地铜之间用地缝合过孔连接，沿板周边、射频 / 天线地周围、信号过孔旁和 TVS 地引脚旁布置；过孔间距小于所关心最高频率的 λ/20。
+  rationale: 地铜之间距离过孔太远，铜皮本身会在高频下成为谐振结构或缝隙；板周边的缝合过孔与两个地平面一起能构成法拉第笼，TVS 旁的缝合过孔降低 ESD 回流电感。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取 GND 过孔坐标，对射频区域和板周边路径（沿板边内缩 1 mm 的多边形）上相邻 GND 过孔的最大间距，通过判据 ≤ λ_eff/20（λ_eff = c / (f·√εeff)，εeff 取 2.8，f 取最高关注频率；2.45 GHz 时约 3.7 mm）。该 εeff 与 Sierra 示例（1 GHz→9 mm）反推一致，为推导值"
+      automatable: full
+    - method: emc_precompliance
+      tool: "近场探头 + 频谱仪"
+      check: "对比加缝合过孔前后的板边近场强度，通过判据：关注频点下降 ≥ 3 dB（经验判据）"
+      automatable: manual
+  sources:
+    - title: "7 PCB Design Guidelines for EMI and EMC"
+      url: "https://www.protoexpress.com/blog/7-pcb-design-tips-solve-emi-emc-issues/"
+      publisher: "Sierra Circuits"
+      kind: blog
+      section: "stitching vias; via fence"
+    - title: "PCB Stack-Up, Part 2 (Henry Ott Consultants)"
+      url: "https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-2.html"
+      publisher: "Henry Ott Consultants"
+      kind: paper
+      section: "Fig. 3b"
+    - title: "ESD Protection Layout Guide (SLVA680A)"
+      url: "https://www.ti.com/lit/an/slva680/slva680.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.4"
+  confidence: medium
+  applies_to: [2_layer, 4_layer, rf]
+  parameters:
+    - name: via_fence_spacing_wavelength_fraction
+      op: "<"
+      value: 0.05
+      unit: "wavelength"
+      note: "Sierra：小于 λ/20（示例：1 GHz 时小于 9 mm）。λ/20 是经验公式，非标准；2.45 GHz 的 3.7 mm 为本库按同一 εeff 推算"
+  conflicts: "λ/20 来自二手博客并无标准出处；Ott 只说两个地平面可以沿板边缝合形成法拉第笼，没有给间距；TI SLVA680A 的例子是在 TVS 地焊盘旁放 1~4 个缝合过孔。RF 领域的天线地缝合细节归 RF 文件。"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-007
+  title: 去掉死铜和孤岛，不让铺铜悬空
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 铺铜区设置“移除孤岛（Remove islands）”为 Always（或设最小面积阈值），DRC 中“Isolated copper fill”类违规数为 0；确需保留的悬空铜必须接地。
+  rationale: 没有连到任何同网络铜的孤岛是悬空导体，可成为耦合 / 辐射的“天线”，也可能是铜渣；地铺铜只有一端连时只相当于屏蔽层而不是导体。
+  verify:
+    - method: drc
+      tool: "kicad-cli pcb drc --format json"
+      check: "违规类型“Isolated copper fill”（孤岛）数 = 0，“Copper sliver”数 = 0；注意 KiCad 只对至少有一处电气连接的区域去孤岛，完全未连接的区域不会被去掉"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew：zone.GetFilledPolysList() 取连通块"
+      check: "对每个 zone 的每个填充连通块，检查是否至少含一个同网络焊盘 / 过孔 / 走线；通过判据：无孤块"
+      automatable: full
+  sources:
+    - title: "KiCad 9.0 PCB Editor — Zone properties; Miscellaneous DRC checks"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Remove islands; Isolated copper fill; Copper sliver"
+    - title: "PCB Design Guidelines For Reduced EMI (SZZA009)"
+      url: "https://www.ti.com/lit/an/szza009/szza009.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§2.2.3 Gridding to Create Planes"
+  confidence: medium
+  applies_to: [kicad]
+  conflicts: "“悬空铜是天线”的说法是常见经验；本次调研读到的是 KiCad 对孤岛的处理方式和 TI 对只有一点连接的铺铜的说明，没有找到孤岛辐射的量化来源，所以置信度 medium。"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-008
+  title: 通孔焊盘用热焊盘，SMD 地焊盘和去耦地直接连
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 铺铜与焊盘的连接：通孔焊盘（便于手工焊接）用热焊盘（thermal relief），SMD 地焊盘（去耦电容、EPAD 等）与地铜实心连接而不是经细线；每个热焊盘至少保留 2 条辐条。
+  rationale: 热焊盘增大焊盘到铜皮的热阻，便于焊接但增大了连接电感；去耦地焊盘需要最短的回流，Espressif 要求地焊盘直接接触地铜而不是经走线。
+  verify:
+    - method: drc
+      tool: "KiCad 自定义规则 + DRC"
+      check: "(rule smd_gnd_solid (condition \"A.Pad_Type == 'SMD' && A.NetName == 'GND'\") (constraint zone_connection solid)) 与 (rule pth_gnd_relief (condition \"A.Pad_Type == 'Through-hole' && A.NetName == 'GND'\") (constraint zone_connection thermal_reliefs)) 与 (rule min_spokes (constraint min_resolved_spokes 2))；DRC 里“Thermal relief connection to zone incomplete”数 = 0"
+      automatable: full
+    - method: bench
+      tool: "手工焊接试焊 / 回流后目检"
+      check: "通孔地焊盘能被普通烙铁正常焊透、不出现冷焊；小型 SMD 地焊盘回流后无立碑（墓碑）"
+      automatable: manual
+  sources:
+    - title: "KiCad 9.0 PCB Editor — Zone properties (Pad connection) and custom rules"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Pad connection; Thermal relief connection to zone incomplete; min_resolved_spokes"
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply（Ground pads should contact the ground copper directly）"
+  confidence: medium
+  applies_to: [kicad, smd, tht]
+  parameters:
+    - name: min_thermal_spokes
+      op: ">="
+      value: 2
+      unit: count
+      note: "KiCad 文档示例规则要求 4（全部辐条）；2 为本库取的下限（经验值）"
+  conflicts: "热焊盘与“最低电感”矛盾：KiCad 的 Reliefs for PTH 选项让通孔用热焊盘、SMD 用实心；对大电流焊盘（电机、功率 MOSFET 源极）改用实心以提高载流是常见经验做法（无来源，需结合热设计）。"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-009
+  title: 天线下方和周围所有铜层禁布，铺铜前先画禁布区
+  domain: general
+  stage: plane_pour
+  severity: must
+  rule: 模块的 PCB 天线下方和周围在所有铜层都不放铜（线、过孔、铺铜），先画好禁布区（keep-out / 规则区域）再铺铜，避免地铺铜填进去；天线下方有底板时要挖空；靠近天线的底板地铜加密集地过孔。
+  rationale: 天线周围的铜会使天线失谐、降低增益；铺铜忘记避让是常见的“发射正常、接收灵敏度差”原因。
+  verify:
+    - method: drc
+      tool: "KiCad 规则区域（禁布：铜、过孔、走线）+ DRC"
+      check: "天线区建规则区域，勾选禁止 tracks / vias / copper fill；DRC 的“Items not allowed”数 = 0"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew，参见 ee-pcb-verify 的 geometry 检查器 的天线禁布检查"
+      check: "取所有铜层的走线、过孔、焊盘与区域填充多边形，检查是否有任何顶点 / 线段落入天线禁布矩形；通过判据：数量 = 0"
+      automatable: full
+    - method: bench
+      tool: "路由器 RSSI / 吞吐量测试，VNA（若有天线测试口）"
+      check: "在最终外壳内测同一位置的 RSSI 与吞吐量，对比官方开发板；通过判据：RSSI 差 ≤ 3 dB（经验判据）"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "General Principles of PCB Layout for Modules"
+    - title: "PCB Editor — rule areas (keepout) and Items not allowed"
+      url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Miscellaneous DRC checks: Items not allowed"
+  confidence: high
+  applies_to: [wifi_module, esp32, antenna]
+  parameters:
+    - name: antenna_keepout_layers
+      op: qualitative
+      value: null
+      unit: "-"
+      note: "Espressif：天线下方和周围任何层都没有铜；具体禁布尺寸以所用模块数据手册为准，本库不给数值"
+  tags: [cat-feeder]
+
+- id: GEN-PLN-010
+  title: 晶振下方做完整地参考，区域内不放其他网络的铜
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: 晶振及其时钟走线下方的相邻层是完整的地平面（或连到最近 MCU 地的局部地平面），区域内不放别的网络的铜、不开孔；金属壳晶振的外壳不接振荡器地。
+  rationale: 完整的地给振荡回路一个紧贴的低阻回流并屏蔽相邻信号的耦合，同时没有别的网络的铜进入杂散电容敏感区。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取晶振 courtyard 外扩 1 mm，检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0"
+      automatable: full
+    - method: bench
+      tool: "频率计 / 示波器（时钟输出引脚）"
+      check: "冷启动 50 次，振荡启动成功率 100%，启动时间 ≤ 数据手册最大值；改动地参考前后对比"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Crystal; General Principles for the Chip"
+    - title: "AN2867 Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs"
+      url: "https://www.st.com/resource/en/application_note/an2867-guidelines-for-oscillator-design-on-stm8afals-and-stm32-mcusmpus-stmicroelectronics.pdf"
+      publisher: "STMicroelectronics"
+      kind: app_note
+      section: "§7.1（Rev 13）"
+  confidence: high
+  applies_to: [crystal]
+  conflicts: "ST：晶振下用专用局部地平面（与应用板地分开，仅连到最近 MCU 地，且仅在晶振附近需要）；Espressif：整个芯片 / RF / 晶振下是完整的 GND 平面。两者都要求紧邻的完整地，差别是否与大地分开。取舍：多层板按 Espressif（整块地），2 层板在地岛（GEN-PLN-005）内满足 ST 的局部地即可。"
+
+- id: GEN-PLN-011
+  title: 芯片底部接地焊盘用多个过孔接地平面
+  domain: general
+  stage: plane_pour
+  severity: should
+  rule: QFN 等带底部接地焊盘（EPAD）的芯片：EPAD 通过至少 9 个地过孔接地平面；模块 EPAD 用方格网分割焊盘、锡膏印在方格间隙内，过孔打在间隙里。
+  rationale: 底部焊盘是芯片唯一（或主要）的地连接，同时承担散热；过孔数不足会增大地电感和热阻。
+  verify:
+    - method: geometry_script
+      tool: "pcbnew"
+      check: "取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：芯片 EPAD ≥ 9（ESP32-C3 QFN 芯片），模块 EPAD 按模块数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008）"
+      automatable: full
+    - method: thermal_sim
+      tool: "热阻网络估算 / 热像仪"
+      check: "满载下测芯片壳温，通过判据：结温 ≤ 数据手册最大值 − 20 °C（余量为经验值）"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply（four-layer）"
+  confidence: high
+  applies_to: [qfn, esp32, module]
+  parameters:
+    - name: epad_ground_vias_chip
+      op: ">="
+      value: 9
+      unit: count
+      note: "Espressif：芯片底部地焊盘至少 9 个地过孔（该条出现在四层板章节，两层板章节沿用同一地连接原则）"
+  tags: [cat-feeder]

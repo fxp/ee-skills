@@ -1,0 +1,66 @@
+# Why a cat-feeder-tagged, automatable:full rule (drc or geometry_script) has no binding yet. One line each; coverage.py renders
+# them into <out>/NOT_AUTOMATED.md. Categories:
+#   needs_project_setup   expressible, but the board/project has no netclass / zone / role to select the objects
+#   needs_other_artifact  checks Gerber / drill / CPL / library files, not the .kicad_pcb (another checker)
+#   needs_data            the data is not in the board file or the tools' output (heights, mask web, silk text, library tables)
+#   empirical_threshold   the catalog says "project-set" and nothing in the repo fixes the number
+#   not_applicable        the circuit class is not on this board
+#   not_done              feasible with the existing primitives; not done in this first slice
+#   manual                needs a human decision / consent
+drc:
+  ANA-RTE-003: {cat: needs_project_setup, why: "the board has only Default and Power netclasses; no Analog/Digital/Switching class to select, and the catalog gives no spacing number (maximize)"}
+  DFM-STK-004: {cat: needs_data, why: "mask web width is a Board Setup value in .kicad_pro, not a custom-rule constraint (bridged_mask has no number); could read .kicad_pro and count built-in solder_mask_bridge hits"}
+  DFM-RTE-004: {cat: needs_data, why: "via tenting/plugging is not a queryable property in the DRC language; the drill <= 0.4 mm half is doable"}
+  DFM-VER-001: {cat: not_done, why: "aggregate gate (zero DRC violations with the DFM-STK rules loaded); run.py's totals cover the content but no result is emitted under this id"}
+  EMC-PLN-001: {cat: not_done, why: "DRC half needs the built-in isolated-copper violation type (key not verified on 10.0.6); geometry half is wired"}
+  GEN-STK-006: {cat: needs_project_setup, why: "wants per-netclass track_width/via rules; the numbers come from the current calculation (GEN-STK-007), which the geometry checker already evaluates"}
+  GEN-FLR-003: {cat: needs_project_setup, why: "needs dig_zone/ana_zone rule areas and an Analog netclass drawn on the board"}
+  GEN-RTE-006: {cat: needs_project_setup, why: "catalog DRC example uses hasNetclass('Power3V3'), which the board lacks; the geometry version is wired (and fails)"}
+  GEN-RTE-010: {cat: needs_project_setup, why: "needs Clock/Sensitive netclasses; a plain 3W clearance rule over all nets would be a different rule"}
+  GEN-PLN-001: {cat: not_applicable, why: "written for a 4-layer In1.Cu ground layer; the 2-layer equivalent is GEN-STK-004"}
+  GEN-PLN-004: {cat: not_done, why: "DRC half needs built-in 'isolated copper' / 'via connected on one layer' types (keys not verified); geometry half is wired"}
+  GEN-PLN-007: {cat: not_done, why: "DRC half needs the built-in isolated-copper type (key not verified); geometry half is wired"}
+  GEN-PLN-008: {cat: not_done, why: "thermal-relief vs solid per pad type (zone_connection + min_resolved_spokes); Pad_Type conditions need a probe on 10.0.6 first"}
+  GEN-PLN-009: {cat: not_done, why: "the board's keep-out rule area exists but no 'Items not allowed' rule is bound to it; geometry half is wired"}
+  GEN-LIB-007: {cat: needs_data, why: "library tables (sym-lib-table / fp-lib-table, ${KIPRJMOD}) are not in the .kicad_pcb"}
+  GEN-VER-008: {cat: manual, why: "order gate includes independent review and explicit human consent for money steps"}
+  HSD-RTE-002: {cat: not_applicable, why: "no differential pairs"}
+  HSD-PLN-003: {cat: not_applicable, why: "no high-speed differential nets"}
+  HVS-STK-002: {cat: empirical_threshold, why: "IPC-2221B spacing by peak voltage; the board is 5 V, where the table value (0.1 mm) is below the fab floor already enforced by DFM-STK-001"}
+  HVS-RTE-001: {cat: not_applicable, why: "no mains / isolated circuitry"}
+  RF-LIB-001: {cat: needs_data, why: "is the keep-out part of the module footprint in the library; a library-file check, not a board check"}
+  RF-FLR-002: {cat: not_done, why: "DRC half same as GEN-PLN-009; geometry half is wired"}
+geometry_script:
+  ANA-LIB-001: {cat: not_done, why: "R10 has four pads with CS_P/CS_N on the sense pads (pad data is in geometry.json); the shunt-footprint test itself is not written"}
+  ANA-FLR-001: {cat: needs_project_setup, why: "needs analog/digital/RF part labels and zone polygons in the design file"}
+  ANA-PLC-001: {cat: empirical_threshold, why: "limit on sense trace length is 'set by the design'; no number anywhere (the length mismatch is covered by PWR-RTE-007)"}
+  ANA-RTE-002: {cat: empirical_threshold, why: "length-difference and spacing limits are project-set; same-layer/width/length facts are in PWR-RTE-007's measured block"}
+  ANA-RTE-003: {cat: needs_project_setup, why: "no analog / digital netclasses to compare"}
+  ANA-RTE-005: {cat: not_done, why: "same function as GEN-RTE-002 with an analog net list in the design file"}
+  DFM-MFG-001: {cat: needs_other_artifact, why: "inspects Gerber files (X2 attributes, units, outline)"}
+  DFM-MFG-002: {cat: needs_other_artifact, why: "inspects the drill files"}
+  DFM-MFG-004: {cat: needs_other_artifact, why: "inspects the CPL / position file columns, units and rotation"}
+  DFM-VER-003: {cat: needs_other_artifact, why: "compares the CPL file with the board geometry"}
+  EMC-FLR-003: {cat: empirical_threshold, why: "ESD-entry keep-out envelope grown by 2 mm, a number the catalog marks as empirical (source gives none)"}
+  EMC-RTE-004: {cat: empirical_threshold, why: "TVS ground pad to nearest ground via distance: 'one pad pitch (empirical)'"}
+  GEN-STK-004: {cat: empirical_threshold, why: "bottom-layer non-GND track length 'close to 0, a few jumpers allowed' has no number; the DRC half (no parts on B.Cu) is wired"}
+  GEN-FLR-003: {cat: needs_project_setup, why: "needs zone rectangles and Analog/Digital netclasses"}
+  GEN-PLC-003: {cat: empirical_threshold, why: "connection length <= one pad width (empirical); ground pad data per capacitor is available"}
+  GEN-PLC-008: {cat: empirical_threshold, why: "series resistor within 5 mm of the driver (empirical); needs the series-resistor roles in the design file"}
+  GEN-RTE-001: {cat: not_done, why: "variant of GEN-RTE-002 with a +-2h pour margin and a 5 % violation budget; needs polygon offsetting"}
+  GEN-RTE-004: {cat: empirical_threshold, why: "length/width <= 3 along every supply segment; needs supply paths for each IC in the design file"}
+  GEN-RTE-007: {cat: not_done, why: "count of ~90-degree corners on RF/fast/ESD nets; the corner computation exists in geom_lib.summarize_path"}
+  GEN-RTE-010: {cat: needs_project_setup, why: "needs Clock/Sensitive netclasses and a parallel-run computation"}
+  GEN-RTE-014: {cat: not_done, why: "four-part ESD check; vias/stub/corner are in EMC-RTE-003, d1/d2 in GEN-PLC-009; 2 mm neighbour clearance and TVS ground-via distance are not"}
+  GEN-PLN-001: {cat: empirical_threshold, why: "2-layer jumper budget and 0.3 mm copper-bridge width are empirical"}
+  GEN-PLN-002: {cat: not_done, why: "one connected GND region per layer; trivially computable from geometry.json (the board has 4 separate F.Cu GND regions >= 1 mm2)"}
+  GEN-PLN-005: {cat: not_done, why: "ground island under the MCU: 6.35 mm margin, >= 90 % fill; module GND pads are in the data"}
+  GEN-PLN-006: {cat: needs_project_setup, why: "via spacing <= lambda/20 needs the RF region and top frequency in the design file"}
+  GEN-PLN-011: {cat: not_applicable, why: "the >= 9 vias figure is for a bare ESP32-C3 QFN EPAD; U1 is a module (module datasheet governs)"}
+  GEN-SCH-011: {cat: not_done, why: "schematic-stage test-point rule; the physical test point is checked by DFM-MFG-009"}
+  HSD-RTE-005: {cat: not_applicable, why: "no high-speed nets"}
+  HSD-RTE-006: {cat: not_applicable, why: "no high-speed differential nets"}
+  LPW-RTE-002: {cat: not_done, why: "needs the track-only IR-drop solve (TOOLCHAIN appendix F); pours are not in the connectivity graph"}
+  PWR-RTE-006: {cat: not_done, why: "layer-change via count versus current; the graph already knows vias and layers"}
+  RF-STK-003: {cat: not_done, why: "solid bottom ground under RF routing; same function as GEN-RTE-002 with the RF net list"}
+  THM-RTE-002: {cat: not_applicable, why: "no exposed thermal pad / via array on this board"}

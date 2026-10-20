@@ -1,0 +1,663 @@
+# 验证工具目录（verifiers）——本机 macOS arm64 / KiCad 10.0.6 / uv Python 3.14，调研日期 2026-10-20。
+# 记录格式见 SCHEMA.md「verifiers.yaml」；配套文档 VERIFICATION_TOOLCHAIN.md（命令与实测输出）。
+#
+# notes 里的标记：
+#   VERIFIED  = 在本机真的跑过（命令和结果见 VERIFICATION_TOOLCHAIN.md §2）
+#   DOCS      = 读过官方文档（URL 写在 notes 里），没在本机跑
+#   UNVERIFIED= 只做了可用性检查（brew info / pip index versions / 网页），没读到足够细节也没跑
+# 路径简写：KCLI=/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
+#           KPY =/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+#           NGLIB=/Applications/KiCad/KiCad.app/Contents/PlugIns/sim/libngspice.0.dylib
+# invocation 里写的是全路径；跑 KiCad 程序前建议设 KICAD_CONFIG_HOME / KICAD_DOCUMENTS_HOME 指向私有目录（见 TOOLCHAIN §4）。
+
+# ============================================================ KiCad：ERC / DRC / 自定义规则
+- id: V-KICAD-ERC
+  name: KiCad ERC (kicad-cli sch erc)
+  methods: [erc]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch erc --format json --severity-all --units mm --exit-code-violations -o erc.json cat_feeder_rev_c.kicad_sch
+  inputs: [kicad_sch, kicad_pro]
+  outputs: [json, report_txt]
+  can_check:
+    - "pin 未连接 (pin_not_connected)、输入脚无任何输出脚驱动、电源输入脚无电源输出驱动 (power_pin_not_driven)"
+    - "引脚类型冲突矩阵（输出对输出、输出对电源等；矩阵存在 .kicad_pro 的 erc.pin_map）"
+    - "标签悬空 (label_dangling)、仅连一个引脚的标签、导线未连接、总线/网络冲突、层次标签与 sheet pin 不匹配"
+    - "重复位号、未标注 (unannotated)、同一符号不同单元值不一致、未定义 netclass、地脚没接到地网络 (ground pin not connected to ground net)"
+    - "符号/封装库链接问题、符号与库副本不一致、封装与 footprint filter 不符 (footprint_filter，默认忽略)"
+    - "SPICE 模型问题 (simulation_model_issue)——默认被忽略，要在 .kicad_pro 的 erc.rule_severities 里打开"
+  limits:
+    - "只做结构与引脚类型检查：不懂元件值、电压/电流额定、去耦是否到位、上拉/下拉是否存在、极性是否接反"
+    - "结果依赖 .kicad_pro：没有 .kicad_pro 时用默认严重度；默认忽略 single_global_label、four_way_junction、simulation_model_issue、footprint_filter"
+    - "JSON 里 items[].pos 坐标是原理图 mm 坐标的 1/100（实测：label 在 (30.48, 50.8) mm，JSON 写 (0.3048, 0.508)），不要用来定位，用 description/uuid"
+    - "不加 --exit-code-violations 时有违规也返回 0；加了返回 5"
+  notes: |-
+    VERIFIED 2026-10-20：参考板原理图副本 0 violations，0.7 s。反例：在副本里删 3 根 wire 后得 6 个 error（4×pin_not_connected、1×label_dangling、1×power_pin_not_driven），加 --exit-code-violations 返回 5。
+    ERC 项目清单来自官方文档 https://docs.kicad.org/10.0/en/eeschema/eeschema.html（List of ERC checks，DOCS）。
+    kicad-cli 每次运行会在工程目录写 .kicad_prl。只在副本上跑。
+
+- id: V-KICAD-DRC
+  name: KiCad DRC built-in checks (kicad-cli pcb drc)
+  methods: [drc]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb drc --format json --severity-all --all-track-errors --units mm --exit-code-violations -o drc.json cat_feeder_rev_c.kicad_pcb
+  inputs: [kicad_pcb, kicad_pro, kicad_dru]
+  outputs: [json, report_txt]
+  can_check:
+    - "电气类：不同网络铜相碰 (shorting_items)、走线交叉、间距 (clearance)、爬电 (creepage，KiCad 10 新增，需 creepage 约束)、悬空过孔与悬空走线端、未连接 (unconnected_items)、热焊盘辐条不足"
+    - "制造类：板边铜距 (copper_edge_clearance)、孔壁间距 (hole_clearance)、孔与孔间距 (hole_to_hole)、孔重合、线宽 (track_width)、转角 (track_angle)、线段长度 (track_segment_length)、环宽 (annular_width)、孔径 (drill_out_of_range)、微孔孔径、铜渣、阻焊桥 (solder_mask_bridge)、铜连接过窄 (connection_width)"
+    - "courtyard 重叠 (courtyards_overlap)、无 courtyard (missing_courtyard——默认 ignore，必须在 .kicad_pro 的 rule_severities 里设为 error 才会报)、courtyard/板框畸形、PTH/NPTH 落在 courtyard 内、焊盘无孔"
+    - "丝印：silk_overlap、silk_over_copper（被阻焊裁切）、丝印压板边；文字高度/线粗 (text_height / text_thickness)；镜像文字；不允许的对象 (items_not_allowed)"
+    - "孤岛铜、不同网络铜区相交、已禁用层上的对象、未解析文本变量、封装库不一致 (lib_footprint_issues / lib_footprint_mismatch)"
+    - "原理图一致性：缺封装/多封装/重复封装、焊盘网络与原理图不符、值与字段不一致（需 --schematic-parity，见 V-KICAD-PARITY）"
+  limits:
+    - "板级阈值（min_clearance、min_track_width、min_via_diameter、min_copper_edge_clearance 等）和 netclass 来自 .kicad_pro；板目录里若没有 .kicad_pro，要把它拷到板旁边，否则 hasNetclass() 恒为假且出现 45 条 lib_footprint_issues"
+    - "不带 --refill-zones 时用文件里存的填充，改过几何后填充是旧的；--refill-zones --save-board 会改板文件，只能用于副本"
+    - "默认 ignore 的检查：missing_courtyard、track_not_centered_on_via、tuning_profile_track_geometries、footprint_filters_mismatch、footprint_type_mismatch（裸工程时）"
+    - "JSON 里的实测值只在 description 字符串中（'actual 2.6300 mm'），没有数值字段，要用正则取"
+    - "坐标是 KiCad 板坐标（参考板的原点相对规格坐标偏移 50 mm）"
+  notes: |-
+    VERIFIED 2026-10-20：参考板副本 + 从 schematic/ 拷来的 .kicad_pro，0.8 s，16 个 warning（6×silk_overlap、10×silk_over_copper），0 error，0 unconnected。
+    退出码：默认 0；--exit-code-violations 时有违规返回 5（默认严重度含 warning；--severity-error 只看 error）；板文件打不开返回 3。
+    JSON 顶层键：$schema, coordinate_units, date, ignored_checks[{key,description}], included_severities, kicad_version, schematic_parity[], source, unconnected_items[], violations[{description, severity, type, items[{description,pos{x,y},uuid}]}]。
+    违规清单与默认严重度来自官方文档 https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html（List of DRC checks，DOCS，逐条读过）。括号里的 JSON type 键只写了本机实测出现过的（clearance, track_width, via_diameter, drill_out_of_range, annular_width, length_out_of_range, skew_out_of_range, too_many_vias, hole_clearance, hole_to_hole, copper_edge_clearance, courtyards_overlap, creepage, track_angle, track_segment_length, connection_width, text_height, text_thickness, items_not_allowed, assertion_failure, silk_overlap, silk_over_copper, shorting_items, solder_mask_bridge, lib_footprint_issues）以及仓库 verify.py 使用的 track_dangling / via_dangling / unconnected_items；其余 type 键未核对。
+
+- id: V-KICAD-DRU
+  name: KiCad custom DRC rules (.kicad_dru, rule language v1)
+  methods: [drc]
+  status: bundled
+  invocation: |-
+    # 规则文件必须叫 <板文件名>.kicad_dru，放在 .kicad_pcb 与 .kicad_pro 同一目录，然后照常跑 DRC：
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb drc --format json --severity-all --units mm -o drc.json cat_feeder_rev_c.kicad_pcb
+    # 最小规则：板上所有封装 courtyard 到板边 >= 2.5 mm（豁免安装孔 H*）
+    (version 1)
+    (rule "DFM-PLC-901" (layer "F.Courtyard") (constraint physical_clearance (min 2.5mm)) (condition "B.Layer == 'Edge.Cuts' && A.Type == 'Footprint' && A.Reference != 'H*'"))
+  inputs: [kicad_pcb, kicad_pro, kicad_dru]
+  outputs: [json]
+  can_check:
+    - "语法：(rule NAME [(severity error|warning|ignore|exclusion)] [(layer L|outer|inner)] [(condition \"EXPR\")] (constraint TYPE args)...)；(version 1)；规则按文件倒序求值，同一约束类型下最后一条匹配的规则胜出"
+    - "约束类型（官方文档 34 个，KiCad 10.0.6 实测全部能加载，除 track_angle 的 'deg' 后缀）：annular_width, assertion, bridged_mask, clearance, connection_width, courtyard_clearance, creepage, diff_pair_gap, diff_pair_uncoupled, disallow, edge_clearance, hole_clearance, hole_size, hole_to_hole, length, min_resolved_spokes, physical_clearance, physical_hole_clearance, silk_clearance, skew, solder_mask_expansion, solder_paste_abs_margin, solder_paste_rel_margin, text_height, text_thickness, thermal_relief_gap, thermal_spoke_width, track_angle, track_segment_length, track_width, via_count, via_dangling, via_diameter, zone_connection"
+    - "实测会触发并产生违规的约束 → 违规 type：clearance/physical_clearance → clearance；hole_clearance/physical_hole_clearance → hole_clearance；edge_clearance → copper_edge_clearance；courtyard_clearance → courtyards_overlap；silk_clearance → silk_overlap/silk_over_copper；track_width → track_width；via_diameter → via_diameter；hole_size → drill_out_of_range；annular_width → annular_width；hole_to_hole → hole_to_hole；length → length_out_of_range；skew → skew_out_of_range；via_count → too_many_vias；connection_width → connection_width；creepage → creepage；track_angle → track_angle；track_segment_length → track_segment_length；text_height/text_thickness → 同名；disallow → items_not_allowed；assertion → assertion_failure"
+    - "只做加载测试、本板无对象触发：bridged_mask, diff_pair_gap, diff_pair_uncoupled（板上无差分对）, min_resolved_spokes, via_dangling。solder_mask_expansion, solder_paste_*_margin, thermal_relief_gap, thermal_spoke_width, zone_connection 是给填充/出图用的取值，不是检查"
+    - "条件里可用：A/B 两个对象（顺序无关）、AB.isCoupledDiffPair()；属性 Type（'Pad','Track','Via','Zone','Footprint','Graphic','Text'...）、Layer、Position_X/Y（可带 mm 后缀，实测可做坐标禁布区）、NetName、NetClass（hasNetclass('X')）、Reference（支持 * ? 通配）、Library_Link、Component_Class（注意：文档里的 Value 属性在 10.0.6 条件里永不匹配，要用 getField('Value')）、Do_not_Populate、Orientation、Pad_Type、Pad_Shape、Pad_Number、Pin_Name、Pin_Type、Fabrication_Property('Heatsink pad','Test point pad','Fiducial, global to board'...)、Hole_Size_X/Y、Size_X/Y、Width、Diameter、Hole、Via_Type、Line_Width、Name(zone)"
+    - "函数：intersectsArea / enclosedByArea（规则区或铜区名）、intersectsCourtyard('U1' 或 'R*' 或 '${Class:X}')、memberOfFootprint、memberOfSheet / memberOfSheetOrChildren、hasComponentClass、hasNetclass / hasExactNetclass、inDiffPair('/USB*')、isCoupledDiffPair、isPlated / isMicroVia / isBlindVia / isBuriedVia、existsOnLayer、getField('LCSC')、fromTo('U1-15','R7-2')；insideArea/insideCourtyard/memberOf 已弃用"
+    - "典型可落地规则：courtyard/物理间距到板边、netclass 线宽/间距/过孔尺寸/孔径/环宽下限、某网络总长上限 (length)、同组网络长度偏差 (skew)、过孔数上限 (via_count)、禁止在某区域放过孔/封装 (disallow)、按坐标的禁布区、按 Reference/Value/Library_Link 的位号级检查 (assertion)、爬电 (creepage)、测试点间距、热焊盘必须实心连接"
+  limits:
+    - "语法错误会让整个 .kicad_dru 被静默丢弃：kicad-cli 返回 0、无任何报错、只报内置检查（实测：未知约束名、未知属性、引号嵌套错误、track_angle (min 135deg) 全部如此）。必须放一条金丝雀规则（对每个封装触发的 assertion）并确认它出现在结果里"
+    - "同一约束类型下，文件里靠后的、条件命中的规则会完全屏蔽靠前的规则（实测：严规则放前、松规则放后 → 严规则 0 违规）。一条目录规则一次 DRC，或按条件互斥分组"
+    - "违规 type 不等于规则名；用 description 里的 \"rule 'NAME'\" 反查，规则名建议直接用目录规则 ID"
+    - "physical_clearance 作用在 courtyard 层时，同一个封装会出现多条记录（封装本体 + courtyard 线段，数值差一个线宽，如 2.6000 与 2.6300），要按位号去重取最小值；安装孔 H* 也会命中，需豁免"
+    - "track_angle 的参数是纯数字（度）：(min 135) 可用，(min 135deg) 是语法错误；135° 的转角在 min 135 下会因舍入报 'actual 135°'"
+    - "DRC 做不了的规则形状见 TOOLCHAIN §2.5：两个指定焊盘之间的欧氏距离上限（只有借 fromTo 路径长度或规则区变通）、回路面积、并行段长度/串扰、返回路径/平面分割、铜面积/密度、缝合过孔间距、网络拓扑先后顺序、需要原理图语义的关联（某 IC 引脚配了多少电容）"
+    - "10.0.6 实测的属性怪癖：A.Value 永不匹配（`A.Value == '10k'` 0 命中，`A.getField('Value') == '10k'` 命中 5 个；连 `A.Value == 'MountingHole_2.2mm'` 也是 0）；A.Orientation 与无单位数比较不命中（`== 90` 与 `!= 0` 都是 0 条，`== 90deg` 11 条）——条件里角度必须带 deg 后缀，而 track_angle 的约束参数却不能带；Reference、Library_Link、Pad_Type、Pad_Shape、NetName、Position_X/Y、Hole、Type 工作正常"
+    - "对象相关的文本变量（如 ${LAYER}）在规则里不能解析（官方文档）；普通工程文本变量会在求值前被文本替换"
+  notes: |-
+    VERIFIED 2026-10-20（参考板副本）：courtyard→板边 2.5 mm 规则 0 违规（最小实测 2.63 mm，U1），3.0 mm 规则只报 U1（actual 2.6300），3.15 mm 规则报 U1 与 SW1/SW2/SW3（3.08），与独立几何脚本量得的结果一致。
+    另实测 40 余种规则片段（见 TOOLCHAIN §2.4 表），确认语法、屏蔽语义、金丝雀检测。语言参考来自官方文档 https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html#custom-design-rules（DOCS，逐条读过约束、属性、函数三张表）。
+    官方文档说 .kicad_dru 应由 Board Setup 的 Custom Rules 页面管理；程序生成是可行的（本次即如此），但没有命令行语法检查工具，所以靠金丝雀。
+
+- id: V-KICAD-DRU-FROMTO
+  name: DRC fromTo() path rules (routed length between two named pads)
+  methods: [drc]
+  status: bundled
+  invocation: |-
+    # 放进 <板>.kicad_dru，用同样的 kicad-cli pcb drc 运行
+    (rule "PWR-PLC-904" (constraint length (max 6mm)) (condition "A.fromTo('C8-1','U1-1')"))
+  inputs: [kicad_pcb, kicad_dru]
+  outputs: [json]
+  can_check:
+    - "两个指定焊盘之间“实际走线路径”的长度上下限（只数这两个焊盘间的铜路径，不是整条网络）：去耦电容到芯片电源脚、分流电阻到检测放大器、续流二极管到电机端子的走线长度"
+    - "沿某信号路径的线宽 (track_width) 与间距 (clearance)；多路径 skew 约束"
+    - "位号/焊盘通配：'U1-*'、'R?-1'、仅位号 'U1'（该封装所有焊盘）；通配大小写不敏感"
+  limits:
+    - "量的是走线（含过孔、焊盘）铜路径长度，不是欧氏距离；两点之间必须已连通。路径只靠铺铜（如 GND 铜皮）连通时路径不唯一，结果不可靠"
+    - "from 焊盘匹配到多个同网络的 to 焊盘时路径无法确定、规则不生效；pattern 要精确到每端一个焊盘"
+    - "只有 length / skew / track_width / clearance / diff_pair_gap 等能和它配合"
+  notes: |-
+    VERIFIED 2026-10-20（参考板副本，min 极小值强制触发以读 actual）：C8-1→U1-1 路径 7.4508 mm（焊盘中心欧氏距离 7.4 mm）；C4-1→U1-1 9.6631 mm（欧氏 7.9）；C1-1→U2-3 2.3092 mm（欧氏 3.1，路径含焊盘内走线）；U3-4→R10-2 1.7585 mm；D1-2→J3-2 3.5000 mm；U1-15→R7-2 11.9752 mm，而整条 IO3 网络 50.3233 mm。
+    官方文档 From-To signal path matching 一节（DOCS）。
+
+- id: V-KICAD-DRU-RULEAREA
+  name: DRC proximity via helper rule areas + assertion (placement 'within N mm of pin')
+  methods: [drc, geometry_script]
+  status: bundled
+  invocation: |-
+    # 1) 用 pcbnew 在板副本里按目标焊盘位置加一个命名规则区（脚本见 TOOLCHAIN 附录 E）
+    /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -I mk_keepin.py in.kicad_pcb out.kicad_pcb U1 1 8
+    # 2) .kicad_dru
+    (rule decap_C8_near_U1_1 (condition "A.Type == 'Footprint' && A.Reference == 'C8'") (constraint assertion "A.intersectsArea('near_U1_1')"))
+    # 3) kicad-cli pcb drc ... out.kicad_pcb
+  inputs: [kicad_pcb, kicad_dru]
+  outputs: [json]
+  can_check:
+    - "“元件必须在某焊盘/某点 R 范围内”这类最大距离规则：规则区（多边形，可近似圆）+ intersectsArea（任意部分在内）或 enclosedByArea（整体在内）"
+    - "“元件必须远离某区域”（天线禁布）：规则区 + disallow footprint / track / via"
+  limits:
+    - "需要先用 pcbnew 往板副本里写规则区（所以实际是 geometry_script + drc 的组合）；区域形状是你定义的多边形，不是真正的圆/欧氏距离"
+    - "enclosedByArea 要求整个封装包围盒都在区域内，比焊盘距离严；intersectsArea 只要求碰到"
+    - "规则区要设 zone name；SetDoNotAllowTracks / Vias / ZoneFills / Pads / Footprints 五个都设 False，才不会同时变成禁布区"
+  notes: |-
+    VERIFIED 2026-10-20：以 U1.1 为中心 5 mm 半边长方形，C8（焊盘距 7.4 mm）→ assertion_failure；8 mm 半边长 → intersectsArea 通过，enclosedByArea 仍失败（C8 courtyard 右缘出区）。
+    结论：能表达“最大距离”，但直接用 pcbnew 算焊盘间距 (V-PCBNEW-PY) 更简单、更精确；这条路适合想把检查留在 KiCad GUI 里也能看到标记的场景。
+
+- id: V-KICAD-PARITY
+  name: KiCad schematic-vs-PCB parity (kicad-cli pcb drc --schematic-parity)
+  methods: [netlist_diff]
+  status: bundled
+  invocation: |-
+    # .kicad_sch 必须与 .kicad_pcb 同名同目录（还需 sym-lib-table / fp-lib-table）
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb drc --schematic-parity --format json --severity-all --units mm -o drc.json cat_feeder_rev_c.kicad_pcb
+  inputs: [kicad_pcb, kicad_sch, kicad_pro]
+  outputs: [json]
+  can_check:
+    - "缺封装 (missing_footprint)、多余封装 (extra_footprint)、重复封装"
+    - "焊盘网络与原理图不符 (net_conflict)"
+    - "值不一致 (footprint_symbol_mismatch：Value)、属性不一致（Exclude from BOM 等）、字段不一致 (footprint_symbol_field_mismatch)"
+    - "封装与符号 footprint filter 不符"
+  limits:
+    - "有噪声：参考板上基线就有 111 条 parity（网络名 PCB 里是 'EN'，原理图里是 '/EN'，每个焊盘一条 net_conflict；Datasheet 字段 '' vs '~'；H1–H4 安装孔 extra_footprint；TP1 的 BOM 属性）。直接用需要先归一化网络名并按 type 过滤，或与基线比差集"
+    - "只比对 KiCad 认为是“同一网络”的名字，对重命名网络会误报；不输出 pin 集合级别的差异"
+  notes: |-
+    VERIFIED 2026-10-20：干净副本 111 条基线；人为改板（删 C12、R1.2 改到 GND、R2 值改 999k）后新增 missing_footprint(C12)、net_conflict(R1.2 GND vs /EN)、footprint_symbol_mismatch(R2 值) 三类，共 112 条，能抓到但需过滤基线噪声。
+    作为 netlist_diff 的更稳做法见 V-KICAD-NETLIST（按引脚集合比较，噪声为 0）。
+
+- id: V-KICAD-NETLIST
+  name: KiCad netlist export + pin-set netlist diff (kicad-cli sch export netlist)
+  methods: [netlist_diff, spice]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export netlist --format kicadxml -o net.xml cat_feeder_rev_c.kicad_sch
+    # PCB 侧用 pcbnew 导出每个焊盘的网络（TOOLCHAIN 附录 D），再用 netlist_diff.py 比较引脚集合
+    /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -I pcb_nets.py cat_feeder_rev_c.kicad_pcb pcb_nets.json
+    python3 netlist_diff.py net.xml pcb_nets.json
+  inputs: [kicad_sch, kicad_pcb]
+  outputs: [xml, json]
+  can_check:
+    - "原理图每个网络的引脚集合 == PCB 同一网络的焊盘集合（按集合比，网络改名不影响，接错才报）"
+    - "原理图有、PCB 没有的位号；PCB 多的位号（豁免 H*/FID*）；Value 不一致"
+    - "导出格式：kicadxml、kicadsexpr、cadstar、orcadpcb2、spice、spicemodel、pads、allegro；--variant 支持变体"
+    - "kicadxml 的 <net class=...> 可读出 netclass 供 hasNetclass 规则用；<comp> 含 value/footprint/fields（可做 BOM 字段检查）"
+  limits:
+    - "pin 集合比较需要自己写脚本（TOOLCHAIN 附录 D 有 40 行原型）；PCB 侧必须经 pcbnew 或 IPC-D-356（见 V-KICAD-IPCD356）取焊盘网络"
+    - "--format spice 在 参考板上的输出：R/C 是带值的行（'C4 +3V3 GND 100n'），IC、连接器、开关等是 '__U1' 这类占位行，DNP 件行尾带 'DNP' 记号——不能直接喂 ngspice"
+  notes: |-
+    VERIFIED 2026-10-20：干净 参考板副本 diff 输出 5 类全空（退出 0）；改板副本（删 C12、R1.2 接 GND、R2=999k）输出 missing_in_pcb=[C12]、value_mismatch=[R2]、EN 与 GND 两个网络的引脚集合不一致（退出 1）。
+    kicadxml 约 68 KB。
+
+- id: V-KICAD-IPCD356
+  name: IPC-D-356 netlist from PCB (kicad-cli pcb export ipcd356)
+  methods: [netlist_diff]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb export ipcd356 -o board.ipc cat_feeder_rev_c.kicad_pcb
+  inputs: [kicad_pcb]
+  outputs: [ipc_d_356]
+  can_check:
+    - "PCB 侧的“网络 → 位号-焊盘”清单（327=SMD 焊盘，317=通孔/过孔，367=无网络 N/C），不需要 pcbnew 即可做 netlist_diff 的 PCB 一侧"
+  limits:
+    - "固定列宽格式，网络名按 IPC-D-356A 限 14 字符，长名会截断；无元件值"
+  notes: |-
+    VERIFIED：命令返回 0，输出 111 条 327 记录、70 条 317 记录。解析器没写，未与原理图 diff；建议主路径仍用 pcbnew 导出 (V-PCBNEW-PY)。
+
+- id: V-KICAD-BOM
+  name: KiCad BOM / position export (kicad-cli sch export bom, pcb export pos)
+  methods: [bom_check]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export bom --fields 'Reference,Value,Footprint,${QUANTITY},LCSC,${DNP}' --labels 'Refs,Value,Footprint,Qty,LCSC,DNP' --group-by 'Value,Footprint,LCSC' -o bom.csv cat_feeder_rev_c.kicad_sch
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb export pos --format csv --units mm --smd-only -o pos.csv cat_feeder_rev_c.kicad_pcb
+  inputs: [kicad_sch, kicad_pcb]
+  outputs: [csv]
+  can_check:
+    - "BOM 字段完整性（每个器件有 LCSC、Footprint、Value；DNP 标记）、同值同封装合并、数量"
+    - "封装与值的一致性（用 Value 里的 100nF 对 Footprint 里的 C_0603 做规则表比对）"
+    - "pos 文件的坐标/旋转/层，用于 SMT 贴片文件检查"
+  limits:
+    - "只给 KiCad 字段，没有降额（电压额定、功率、温度）、生命周期、库存/价格；这些要么放自定义字段（Voltage、Tolerance、Dielectric、Power）再写规则表，要么查 JLC 零件库"
+    - "参考板原理图里没有 LCSC 字段，LCSC 列为空"
+    - "pos 的旋转不含 JLC 包装旋转偏移（需自行换算）"
+  notes: |-
+    VERIFIED 2026-10-20：BOM 导出返回 0，按 Value/Footprint 分组例如 'C4,C7-C10,C12 | 100nF | C_0603 | 6'。pos 导出命令已读 --help，未跑出样例。
+
+- id: V-KICAD-STATS
+  name: KiCad board statistics (kicad-cli pcb export stats)
+  methods: [geometry_script]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb export stats --format json --units mm -o stats.json cat_feeder_rev_c.kicad_pcb
+  inputs: [kicad_pcb]
+  outputs: [json]
+  can_check:
+    - "板尺寸/面积、正反面元件密度、铜面积、最小线宽/最小实际间距/最小孔径（board.min_track_width、min_track_clearance、min_drill_diameter）、板厚"
+    - "焊盘计数（通孔/SMD/NPTH）、过孔计数、各类封装面积"
+  limits:
+    - "只有汇总值，没有位置；值是带单位的字符串（'0.2750 mm'）要自己解析"
+  notes: |-
+    VERIFIED 2026-10-20：参考板副本 66×60 mm，min_track_clearance 0.2750 mm，min_track_width 0.2500 mm，min_drill_diameter 0.3000 mm，通孔 11 / SMD 120 / NPTH 4。
+
+# ============================================================ pcbnew Python / 仓库已有工具
+- id: V-PCBNEW-PY
+  name: pcbnew Python in KiCad's bundled interpreter (geometry scripts)
+  methods: [geometry_script]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -I my_check.py cat_feeder_rev_c.kicad_pcb out.json
+  inputs: [kicad_pcb]
+  outputs: [json]
+  can_check:
+    - "焊盘/封装位置、焊盘中心距、焊盘边到边的精确距离（pad.GetEffectiveShape(F_Cu).Collide(other, clearance) 对 clearance 二分，实测 C8.1↔U1.1 边距 6.225 mm，中心距 7.4 mm）"
+    - "courtyard 到板边、courtyard 包围盒、板框 bbox、禁布区内元件/走线"
+    - "每网络走线总长、线宽最小值、过孔数；铜区填充面积 (ZONE.GetFilledArea)、netclass 列表"
+    - "回路面积代理（焊盘中心多边形 shoelace）、噪声源到敏感点距离"
+    - "网络 → 焊盘集合（供 netlist_diff）、元件 Value/FPID（供 bom_check）、铜几何导出（供 IR drop 求解）"
+  limits:
+    - "只能在 KiCad 自带的 Python 3.9.13 里 import pcbnew；uv 的 Python 3.14 里 import 会报 dlopen 错误 (_pcbnew.so 是 cpython-39)，只能子进程 + JSON 交换"
+    - "SWIG 绑定官方文档称“不稳定、随版本变”；有说法称计划在 KiCad 11 移除（未在官方 10.0 文档里找到该句，UNVERIFIED），备用方案是自写 s-expression 解析"
+    - "PCB_VIA.GetWidth() 不带层参数会向 stderr 打 assert 警告（每次一行），读取通孔直径要传层参数或丢弃 stderr"
+    - "必须加 -I（或 -s），否则会混入 ~/Library/Python/3.9/lib/python/site-packages 里的用户包（实测可见 boto3、google-api-* 等）"
+    - "pcbnew.SaveBoard 写文件，只对副本使用；GUI 打开同一块板时绝不能写原文件"
+  notes: |-
+    VERIFIED 2026-10-20：python 3.9.13，pcbnew 10.0.6；$KPY -I -c 'import pcbnew' 成功；一份只读的几何审计脚本在参考板副本上跑通（0.25 s，不改动）。
+    官方 API 文档 https://docs.kicad.org/doxygen-python-10.0/namespaces.html 与脚本章节（DOCS）。
+    没有 numpy 等第三方包；要数值计算就导出 JSON 给 uv 的 Python 3.14 处理。
+
+- id: V-LIBNGSPICE
+  name: KiCad-bundled libngspice 45.2 driven from Python via ctypes (headless)
+  methods: [spice, pi_sim, si_sim]
+  status: bundled
+  invocation: |-
+    uv run python -I run_spice.py      # run_spice.py 用 ctypes.CDLL("/Applications/KiCad/KiCad.app/Contents/PlugIns/sim/libngspice.0.dylib")，ngSpice_Init → ngSpice_Circ(网表行数组) → ngSpice_Command("run") → ngGet_Vec_Info("v(out)")
+    # 驱动代码约 45 行，见 VERIFICATION_TOOLCHAIN.md 附录 A
+  inputs: [spice_netlist]
+  outputs: [vectors_in_python]
+  can_check:
+    - ".tran 瞬态：RC 阶跃（1 kΩ/1 µF，t=τ 处 0.63212 V，误差 1e-6）、电机/LED 驱动、上电时序、过冲（与阈值比较）"
+    - ".ac 小信号：滤波器截止频率与相位（159.15 Hz RC：|H|=0.7086，相位 −44.88°）、环路增益（需自行注入）、PDN 阻抗 Z(f)（电流源 1 A AC，读节点电压）"
+    - ".noise：热噪声（10 kΩ：12.87 nV/√Hz，与解析 √(4kTR) 相对差 <1e-5）；.op 工作点（分压）；.meas（t63=1.000 ms）；.options temp= 温度扫描（二极管压降 −40/27/85 °C = 0.8007/0.6929/0.5966 V）"
+    - "传输线反射：理想 T 线 Z0=50 Ω，负载 100 Ω，终端首次到达 0.6667 V（解析 0.5·(1+Γ)=0.6667）"
+    - "XSPICE 代码模型：analog.cm 可加载（codemodel 命令返回 0）；目录里另有 digital.cm / tlines.cm / table.cm / xtradev.cm / xtraevt.cm / spice2poly.cm，仅验证了 analog.cm 加载"
+  limits:
+    - "kicad-cli 10.0.6 没有仿真子命令（sch 只有 erc / export / upgrade），KiCad 原理图内的仿真器是 GUI 功能；所以走的是“导出 SPICE 网表 → 自己调库”"
+    - "需要自己写网表和模型：AMS1117、INA199、MOSFET 的 SPICE 模型本机没有（要用厂商提供的 .lib）；原理图 → 网表的自动流程（Sim.* 字段）未验证"
+    - "库是 ngspice-45.2（KLU），不带 PySpice 那类封装；ngspice 无 .step，参数/温度/蒙特卡洛扫描要在 Python 里循环"
+    - "ngSpice_Init 是进程级全局状态，同一进程里多个电路顺序跑没问题（本测试即如此），但并行要用多进程"
+  notes: |-
+    VERIFIED 2026-10-20：uv Python 3.14.6 + ctypes 直接加载，无需额外安装。库同时存在于 Contents/PlugIns/sim/（连带 ngspice/*.cm 代码模型目录）和 Contents/Frameworks/（同样 23460272 字节，rpath 指向 PlugIns/sim）。通用二进制 (arm64+x86_64)。RC 瞬态 526 个点耗时约 2 ms。
+    另验证：100 nF/ESR 30 mΩ/ESL 0.7 nH 的 PDN 阻抗最小点 19.05 MHz、30.00 mΩ（解析 f0=19.02 MHz、ESR=30 mΩ）。
+    ngspice 手册 https://ngspice.sourceforge.io/ （DOCS，说明 Homebrew 有包；本机未装，也不需要）。
+
+- id: V-KICAD-SPICE-NETLIST
+  name: KiCad schematic → SPICE netlist (kicad-cli sch export netlist --format spice)
+  methods: [spice]
+  status: bundled
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export netlist --format spice -o net.cir cat_feeder_rev_c.kicad_sch
+  inputs: [kicad_sch]
+  outputs: [spice_netlist]
+  can_check:
+    - "把原理图转成可仿真网表的第一步；无源件（R/C）带值直接输出，如 'C4 +3V3 GND 100n'；--format spicemodel 导出为 .subckt"
+  limits:
+    - "参考板原理图没给符号设 Sim.Device/Sim.Type 等字段：IC、连接器、MOSFET 输出为 '__U1' 这类占位行，ERC 的 simulation_model_issue 默认被忽略所以不会提示"
+    - "DNP 件输出 'R14 /IO10 GND 10k DNP'，尾部 DNP 对 ngspice 是非法记号，需后处理；网络名带 '/' 前缀"
+  notes: |-
+    VERIFIED：返回 0，输出 671 字节，仅无源元件有有效行。未验证给符号加 Sim.* 字段后的完整流程（UNVERIFIED）。
+
+- id: V-NGSPICE-CLI
+  name: Standalone ngspice (Homebrew formula)
+  methods: [spice]
+  status: not_installed
+  invocation: |-
+    brew install ngspice     # 不装；用 V-LIBNGSPICE 替代。装了之后：ngspice -b -o out.log circuit.cir
+  inputs: [spice_netlist]
+  outputs: [raw, log]
+  can_check:
+    - "同 V-LIBNGSPICE 的全部分析类型；批处理 -b、.control 脚本、.raw 输出可以给外部绘图"
+  limits:
+    - "本机不需要：libngspice 已覆盖，且版本为 45.2，而 Homebrew 的稳定版是 47（两者模型行为可能有小差异）"
+  notes: |-
+    VERIFIED：which ngspice → not found；brew info --formula ngspice → stable 47 (bottled)。
+
+- id: V-LTSPICE
+  name: LTspice (Analog Devices, macOS)
+  methods: [spice]
+  status: not_installed
+  invocation: |-
+    brew install --cask ltspice     # 不装；批处理模式的命令行参数未验证
+  inputs: [spice_netlist, ltspice_asc]
+  outputs: [raw]
+  can_check:
+    - "厂商 SPICE 模型（ADI/LT 的运放、LDO、DC-DC）通常最完整；.step 参数扫描、.meas、FFT"
+  limits:
+    - "专有免费软件，GUI 为主；macOS 版命令行批处理能力未验证（UNVERIFIED）；TI 模型多为 PSpice/TINA 格式，需转换"
+  notes: |-
+    VERIFIED（可用性）：brew info --cask ltspice → 26.0.2；/Applications 下没有。ADI 官网页面本次访问失败，未读文档。
+
+- id: V-XYCE
+  name: Xyce (Sandia, SPICE-compatible parallel simulator)
+  methods: [spice]
+  status: not_installed
+  invocation: |-
+    # brew 无 xyce 配方（brew info --formula xyce 报 No available formula）；官方下载页 https://xyce.sandia.gov/downloads/ ，构建指南 https://xyce.sandia.gov/documentation-tutorials/building-guide/
+    Xyce circuit.cir
+  inputs: [spice_netlist]
+  outputs: [prn, csv, raw]
+  can_check:
+    - "大规模电路、蒙特卡洛/参数采样（.SAMPLING）、谐波平衡 (HB)、更严格的收敛性"
+  limits:
+    - "macOS arm64 二进制是否提供未能确认（官网首页称“所有常见桌面平台串行运行”，下载页本次访问失败）；源码构建依赖 Trilinos 等，成本高"
+    - "对本板（~50 个元件）无必要"
+  notes: |-
+    DOCS：https://xyce.sandia.gov/ （GPL 开源，SPICE 兼容）。UNVERIFIED：未下载、未构建。
+
+- id: V-QUCS-S
+  name: Qucs-S (GUI front-end for ngspice / Xyce / Qucsator)
+  methods: [spice]
+  status: not_installed
+  invocation: |-
+    # brew 无 cask；仓库 https://github.com/ra3xdh/qucs_s ，二进制获取方式见其 wiki
+  inputs: [qucs_s_schematic]
+  outputs: [dataset]
+  can_check:
+    - "同一原理图切换 ngspice/Xyce/Qucsator 后端；Qucsator 做 S 参数/射频小信号"
+  limits:
+    - "GUI 软件，无稳定的无头接口；对自动验证价值低于直接用 libngspice"
+  notes: |-
+    DOCS：GitHub 页称支持 Linux/Windows/FreeBSD/macOS，GPL-2.0，后端 ngspice（推荐）、Xyce、SpiceOpus、Qucsator。UNVERIFIED：macOS 发布包情况未确认。
+
+- id: V-PYSPICE-SPICELIB
+  name: Python SPICE wrappers (PySpice, spicelib, ltspice reader)
+  methods: [spice]
+  status: not_installed
+  invocation: |-
+    # 仅做了 pip index versions 检查，未安装。需要时：uv add --dev PySpice spicelib（本任务禁止安装）
+  inputs: [spice_netlist]
+  outputs: [python_objects, raw]
+  can_check:
+    - "PySpice 1.5（可调 ngspice 共享库）；spicelib 1.6.4（读写 LTspice/ngspice/Qucs/Xyce 的 raw 与网表、批量仿真）；ltspice 1.0.6（读 LTspice .raw）"
+  limits:
+    - "本机已经有 40 行 ctypes 驱动（附录 A），这些库主要增加网表对象模型和 raw 解析；PySpice 对新版 ngspice 的兼容性未验证"
+  notes: |-
+    VERIFIED（可用性）：pip index versions → PySpice 1.5、spicelib 1.6.4、ltspice 1.0.6、ngspyce / pyngspice 不存在。https://github.com/PySpice-org/PySpice 、https://github.com/nunobrum/spicelib 、https://pypi.org/project/ltspice/ （UNVERIFIED 内容）。
+
+# ============================================================ 传输线 / 载流量 / 公式
+- id: V-KICAD-PCBCALC
+  name: KiCad PCB Calculator (GUI only)
+  methods: [tline_calc]
+  status: bundled
+  invocation: |-
+    open -a /Applications/KiCad/KiCad.app/Contents/Applications/pcb_calculator.app     # 仅 GUI，kicad-cli 没有对应子命令
+  inputs: [manual_entry]
+  outputs: [screen]
+  can_check:
+    - "Track Width：按 IPC-2221 的线宽-电流-温升；Electrical Spacing：IPC-2221 电压-间距表（>500 V 可手输）；Via Size：过孔电气/热参数"
+    - "TransLine：微带 (Atwater 1989)、耦合微带 (Kirschning-Jansen / Jansen)、共面波导（带/不带地平面）、带状线、同轴、矩形波导、双绞线；基于 Transcalc，含频率相关模型"
+    - "Regulators（反馈电阻）、RF 衰减器、E 系列电阻组合、色环、板级等级 (IPC-6011/6012)"
+  limits:
+    - "不能脚本化；不能当 CI 检查用。要用同样公式就得在 Python 里复现（见 V-PY-TLINE-FORMULAS），且复现结果没有和 GUI 逐项对过"
+  notes: |-
+    DOCS：https://docs.kicad.org/10.0/en/pcb_calculator/pcb_calculator.html 。pcb_calculator.app 存在于 Contents/Applications/；PlugIns/_pcb_calculator.kiface 为其库。
+
+- id: V-PY-TLINE-FORMULAS
+  name: Python re-implementations of IPC-2221 trace width and microstrip Z0
+  methods: [tline_calc]
+  status: installed
+  invocation: |-
+    uv run python -I tl_formulas.py     # 纯 stdlib（math），公式见 VERIFICATION_TOOLCHAIN.md 附录 B
+  inputs: [parameters]
+  outputs: [python_values]
+  can_check:
+    - "IPC-2221 线宽：I=1 A、ΔT=10 °C、1 oz 外层 → 0.300 mm；内层 → 0.781 mm；2 A → 0.781 mm 外层；3 A → 1.367 mm 外层"
+    - "微带阻抗（Hammerstad-Jensen 1980 准静态；IPC-2141 近似）：h=1.6 mm、εr=4.5、t=35 µm 时 w=3.0 mm → 49.5 Ω (HJ) / 49.0 Ω (IPC-2141)；反解 50 Ω 的线宽 2.945 mm"
+    - "对规则：线宽下限 vs 电流（载流）、阻抗控制目标线宽"
+  limits:
+    - "只有公式实现，未与 KiCad PCB Calculator、场求解器或实测对照；IPC-2221 的曲线对内层/厚铜保守度未评估；没有耦合微带、带状线、共面波导、差分阻抗、损耗、色散"
+    - "需要时的现成实现：scikit-rf 的 MLine/CPW 媒质类（见 V-SKRF，未安装）"
+  notes: |-
+    VERIFIED 2026-10-20：脚本运行，数值如上。公式出处：Hammerstad & Jensen, IEEE MTT-S 1980；IPC-2141 微带近似；IPC-2221（线宽公式 I = k·ΔT^0.44·A^0.725，k=0.048 外层/0.024 内层，A 为 mil²）。均来自文献与 KiCad 文档对 IPC-2221 的引用，未重新读标准原文。
+
+- id: V-SKRF
+  name: scikit-rf (RF networks, transmission-line media, Touchstone)
+  methods: [tline_calc, si_sim, em_sim]
+  status: not_installed
+  invocation: |-
+    # 仅 pip index versions 检查，未安装：python -m pip index versions scikit-rf → 2.2.0
+    import skrf; line = skrf.media.MLine(...)     # 示意，未运行
+  inputs: [touchstone, parameters]
+  outputs: [python_objects]
+  can_check:
+    - "微带/共面波导/同轴等媒质的特性阻抗、传播常数；S 参数级联、去嵌、端口重归一化；Touchstone 读写；无源性/互易性检查"
+    - "可作为 openEMS/场求解器输出 S 参数的后处理，以及 SI 规则（插入损耗、回波损耗）的判据计算"
+  limits:
+    - "未安装也未运行，以上能力清单来自其文档/常识（UNVERIFIED）"
+  notes: |-
+    https://scikit-rf.readthedocs.io/ （网页可达）；https://pypi.org/project/scikit-rf/ 。
+
+# ============================================================ 电磁 / SI / PI / 热
+- id: V-OPENEMS
+  name: openEMS (FDTD 3D EM solver) + CSXCAD Python
+  methods: [em_sim, si_sim]
+  status: not_installed
+  invocation: |-
+    # brew 无配方；pip 无 openEMS/CSXCAD 包。官方安装页：https://docs.openems.de/en/latest/install/index.html（Requirements / Clone, Build and Install / Ready-Made Packages / Python Interface）
+    python run_sim.py     # 用 openEMS 与 CSXCAD 的 Python 绑定描述几何、激励、端口，运行 FDTD
+  inputs: [python_script, geometry_stl_or_csx]
+  outputs: [hdf5, s_parameters]
+  can_check:
+    - "天线/微带/传输线 S 参数、阻抗、近场；与 scikit-rf 配合做 S 参数后处理"
+    - "ESP32-C3 板载天线禁布区效果、传输线终端、过孔不连续（需要把 KiCad 几何导成 openEMS 输入，没有现成脚本）"
+  limits:
+    - "macOS arm64 官方安装路径文档页没写（页面只列出 Linux 风格“克隆-构建-安装”和现成包条目），需源码构建，依赖 CGAL/VTK/HDF5/Boost 等；工作量大，对本板的 WiFi 天线评估也远不是“规则检查”级别"
+    - "没有 KiCad → openEMS 的自动导入"
+  notes: |-
+    DOCS：https://docs.openems.de/ 首页与安装页目录。UNVERIFIED：未构建。
+
+- id: V-ELMER
+  name: Elmer FEM (thermal / electrostatics / Joule heating / magnetodynamics)
+  methods: [thermal_sim, em_sim]
+  status: not_installed
+  invocation: |-
+    # brew 无配方；官方仓库 https://github.com/ElmerCSC/elmerfem
+    ElmerSolver case.sif
+  inputs: [mesh, sif]
+  outputs: [vtu, results]
+  can_check:
+    - "稳态/瞬态热传导（板铜层散热、功率器件结温，需要 gmsh 做网格；brew 有 gmsh 4.15.2 配方）、静电场电容提取、焦耳热/电流密度"
+  limits:
+    - "官方仓库页没有列出 macOS 二进制，只提到 macOS 编译指南；本机不可用"
+    - "KiCad → 网格 → Elmer 的管线需要自己搭（板铜图形导出 STEP/STL，再 gmsh 划分）"
+  notes: |-
+    DOCS：GitHub 仓库页（GPL v2 / LGPL v2.1）列出的预编译包为 WSL、Windows 安装包、VirtualBox、Ubuntu PPA、Docker。UNVERIFIED：能力清单取自项目简介与一般认知。
+
+- id: V-PY-IRDROP
+  name: Track-network IR drop solver (pcbnew dump + numpy/scipy)
+  methods: [pi_sim]
+  status: installed
+  invocation: |-
+    /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -I dump_copper.py board.kicad_pcb copper.json
+    uv run python -I irdrop.py copper.json +5V F1.2 U2.3 1.0      # 网络 起点焊盘 终点焊盘 电流(A)；核心算法见 TOOLCHAIN 附录 F
+  inputs: [kicad_pcb]
+  outputs: [json, stdout]
+  can_check:
+    - "两焊盘间直流电阻与压降（走线段 R=ρL/(w·t)，过孔近似 0.5 mΩ，铜箔 35 µm）：用于电源/地路径的 IR drop 规则"
+  limits:
+    - "原型，只数走线，不含铜皮（GND 铺铜）：对铺铜网络是上界；过孔电阻是占位值；不含电流分布（单一点对点电流）"
+    - "未做平面（zone）电阻、温度系数、焊盘/过孔内部的详细模型"
+  notes: |-
+    VERIFIED 2026-10-20（原型，参考板副本）：+5V 的 F1.2→U2.3 28.4 mΩ（1 A 下 28.4 mV）；MOTOR_N 的 J3.2→Q1.3 7.4 mΩ；+3V3 的 U2.2→U1.1 31.4 mΩ（0.4 A 下 12.6 mV）。未与独立工具交叉验证（UNVERIFIED 精度）。
+    脚本原先在工作目录，随清理删除；要用按附录 F 重建。
+
+- id: V-PDN-SPICE
+  name: PDN impedance and decoupling via libngspice AC analysis
+  methods: [pi_sim]
+  status: bundled
+  invocation: |-
+    uv run python -I pdn.py      # 1 A AC 电流源并联 VRM(R+L) 与各去耦电容(C+ESR+ESL)，.ac dec 100 10k 1G，读节点电压幅值 = |Z(f)|
+  inputs: [spice_netlist, parameters]
+  outputs: [python_values]
+  can_check:
+    - "目标阻抗曲线（Z_target = ΔV/ΔI）与各电容的并联谐振/反谐振位置、电容值/ESL 选择"
+    - "示例：22 µF+10 µF+100 nF 并联在 LDO 输出（50 mΩ+20 nH）上，100 kHz 38 mΩ、10 MHz 84 mΩ、100 MHz 233 mΩ"
+  limits:
+    - "元件模型是理想 C+ESR+ESL 集总值（需要查电容的 SPICE/S 参数模型，如 Murata/TDK 提供）；没有平面扩散电感、过孔电感、焊盘到平面环路电感的自动提取，这部分要手填或用 openEMS/场求解器"
+    - "没有商用 PDN 工具（见 V-COMMERCIAL-EDA）"
+  notes: |-
+    VERIFIED 2026-10-20：单个 100 nF 的最小阻抗点 19.05 MHz/30.00 mΩ，对解析 f0=1/(2π√(LC))=19.02 MHz；多电容示例能跑出合理曲线，未做与实测的对比。
+
+- id: V-SI-TLINE-SPICE
+  name: Reflection / termination checks with ngspice T-line elements (+ IBIS parsers)
+  methods: [si_sim]
+  status: bundled
+  invocation: |-
+    uv run python -I si.py      # 网表含 'T1 in 0 out 0 Z0=50 TD=1n'，.tran 50p 10n，读 v(out)
+  inputs: [spice_netlist]
+  outputs: [python_values]
+  can_check:
+    - "理想/有损传输线的反射、振铃、串联端接电阻取值、上升沿与线长比（走线是否需要终端）"
+    - "示例：50 Ω 源、50 Ω 线、100 Ω 负载，阶跃到达负载电压 0.6667 V = 0.5·(1+Γ)，Γ=1/3"
+  limits:
+    - "IBIS：本机无工具；pip 有 pyibis 2.4.1（解析 IBIS 文件），IBIS → SPICE 缓冲器模型的转换未验证；没有眼图/抖动/串扰（需耦合线模型）分析的现成流程"
+    - "对本板（ESP32-C3 UART/SPI/HX711 低速信号）基本不需要；USB/以太网/DDR 才有意义"
+  notes: |-
+    VERIFIED 2026-10-20（T 线反射数值）。pyibis 只做了 pip index versions（UNVERIFIED 内容）：https://pypi.org/project/pyibis/ 。
+
+- id: V-COMMERCIAL-EDA
+  name: Commercial SI / PI / EM / thermal suites (not available here)
+  methods: [si_sim, pi_sim, em_sim, thermal_sim]
+  status: not_installed
+  invocation: |-
+    # 例：Siemens HyperLynx、Cadence Sigrity / Clarity / Celsius、Keysight ADS / PIPro、Ansys SIwave / HFSS / Icepak、Altium PDN Analyzer
+  inputs: [layout_database, ibis_or_spice_models]
+  outputs: [reports]
+  can_check:
+    - "PDN 阻抗/IR drop 带铜皮、SI（眼图、串扰、IBIS/IBIS-AMI）、3D 全波、热-电联合仿真"
+  limits:
+    - "本机没有，多数仅 Windows/Linux；本次只列名，没有核对产品当前版本、平台和授权，全部 UNVERIFIED"
+  notes: |-
+    列出仅为标注“开源方案做不到的深度在哪里”；本板 2 层、低速，一般用不到。
+
+- id: V-PY-THERMAL
+  name: Thermal estimation building blocks (numpy / scipy / networkx; no solver installed)
+  methods: [thermal_sim]
+  status: installed
+  invocation: |-
+    # 没有现成工具。可用积木：scipy.sparse（二维热传导有限差分）、networkx（热阻网络）、IPC-2221 温升公式（V-PY-TLINE-FORMULAS）
+  inputs: [kicad_pcb, power_table]
+  outputs: [python_values]
+  can_check:
+    - "热阻网络估算：结温 = 环境 + P·(θJC+θ板)，需要数据手册 θ 值（人工输入）"
+    - "铜走线温升（IPC-2221 反算）"
+  limits:
+    - "没有任何热仿真被构建或验证；板级铜扩散/对流需要自写有限差分，且没有基准算例"
+    - "AMS1117 在 5 V→3.3 V、电流 I 下的功耗 (5−3.3)·I 要靠 bom_check 层的表格计算"
+  notes: |-
+    UNVERIFIED：只确认了依赖已装（uv pip list：numpy 2.5.4、scipy 1.18.1、networkx 3.7、lxml 6.1.3、rtree 1.4.1、trimesh 5.1.1、pyyaml 6.0.3）。
+
+# ============================================================ 读 KiCad 文件的 Python 库
+- id: V-PY-KICAD-READERS
+  name: Third-party KiCad file libraries (kiutils, kicad-skip, sexpdata)
+  methods: [geometry_script, netlist_diff]
+  status: not_installed
+  invocation: |-
+    # 仅 pip index versions，未安装：kiutils 1.4.8、kicad-skip 0.2.5、sexpdata 1.0.2
+  inputs: [kicad_pcb, kicad_sch]
+  outputs: [python_objects]
+  can_check:
+    - "kiutils：解析/修改 .kicad_pcb/.kicad_sch/符号/封装；kicad-skip：以对象方式遍历/修改原理图（按位号/位置找符号、沿导线追踪连接），PCB 支持较弱；sexpdata：通用 s-expression"
+  limits:
+    - "是否支持 KiCad 10 的文件格式（本板 .kicad_pcb version 20260206）未验证：kicad-skip 的 README 示例是 version 20230121；kiutils 页面访问失败；若不支持新字段可能丢字段，写回之前要先在副本上比对"
+    - "它们读不出 DRC 结果或铜区填充，几何计算要自己写——自己写一个 s-expression 解析器就够做只读解析"
+  notes: |-
+    VERIFIED（可用性）：pip index versions 如上；GitHub 页面 https://github.com/psychogenic/kicad-skip 已读（LGPL-2.1，pip install kicad-skip，直接读写文件，不需要运行中的 KiCad）。https://github.com/mvnmgrx/kiutils 、https://github.com/jd-boyd/sexpdata （UNVERIFIED 内容）。
+
+- id: V-KIKIT
+  name: KiKit (panelization / fab export)
+  methods: [geometry_script]
+  status: not_installed
+  invocation: |-
+    # 仅 pip index versions：KiKit 1.8.1
+  inputs: [kicad_pcb]
+  outputs: [gerbers, panel]
+  can_check:
+    - "拼板、V-cut/邮票孔、按厂商预设一次导出 Gerber 与装配数据"
+  limits:
+    - "官方页称“因 KiCad 打包方式，部分平台需要指定 Python 解释器”——它依赖 pcbnew，在 macOS 上要用 KiCad 自带的 Python；本任务不需要拼板；README 未列出 DRC/校验功能"
+  notes: |-
+    DOCS：https://github.com/yaqwsx/KiKit 已读；macOS/KiCad 10 兼容性 UNVERIFIED。
+
+- id: V-KICAD-IPC-API
+  name: KiCad 10 IPC API (kicad-python / kipy) — needs a running KiCad GUI
+  methods: [geometry_script]
+  status: not_installed
+  invocation: |-
+    # pip index versions kicad-python → 0.8.0；API 通过 /tmp/kicad/api.sock 连接正在运行的 KiCad（需在偏好设置里启用 API）
+  inputs: [running_kicad_instance]
+  outputs: [python_objects]
+  can_check:
+    - "读正在编辑的板（元件、网络、选择），不用保存；撤销友好地移动单个封装"
+  limits:
+    - "不是无头方案：必须有 KiCad 图形界面实例；官方说明 API 请求与用户操作同步，KiCad 忙时会超时；不适合 CI 式规则检查"
+    - "没有测试（需要运行中的 KiCad 图形界面）"
+  notes: |-
+    DOCS：https://dev-docs.kicad.org/en/apis-and-binding/ipc-api/ （已读）；uv 主环境里没有 kipy（uv pip list）。
+
+# ============================================================ 制造侧 / 其他方法
+- id: V-JLC-DFM
+  name: JLCPCB online DFM / order-side checks
+  methods: [review]
+  status: cloud
+  invocation: |-
+    # 网页上传 Gerber / 下单页自动检查；没有找到官方文档，未验证
+  inputs: [gerber_zip, bom_csv, cpl_csv]
+  outputs: [web_report]
+  can_check:
+    - "板厂最小线宽/间距/孔径/板边距、贴片文件（BOM/CPL）匹配、拼板/工艺边"
+  limits:
+    - "云端、非自动化；DFM 确认是人工步骤；不能当作机器可读的 pass/fail"
+  notes: |-
+    UNVERIFIED：本次未访问 JLC 页面。仅作为 review 型验证记录。
+
+- id: V-GERBER-LIBS
+  name: Gerber / drill reading libraries (gerbonara, pygerber, pcb-tools)
+  methods: [geometry_script]
+  status: not_installed
+  invocation: |-
+    # 仅 pip index versions：gerbonara 1.6.3、pygerber 2.4.3、pcb-tools 0.1.6；Gerber 导出用 kicad-cli pcb export gerbers / drill（仓库 verify.py 已封装）
+  inputs: [gerber_zip]
+  outputs: [python_objects]
+  can_check:
+    - "对导出的 Gerber 做二次几何检查（铜到板边、最小线宽、丝印压焊盘），独立于 KiCad 内部 DRC"
+  limits:
+    - "未安装未运行；对本流程价值有限（KiCad DRC 已覆盖），仅作为交付物层面的第二意见"
+  notes: |-
+    VERIFIED（可用性）：pip index versions；https://github.com/jaseg/gerbonara 可达。
+
+- id: V-BENCH
+  name: Bench instruments (scope / DMM / VNA / power analyzer / thermal camera)
+  methods: [bench, emc_precompliance]
+  status: not_installed
+  invocation: |-
+    # 本机未发现任何受控仪器（未做仪器枚举）；手工测量 + 结果录入
+  inputs: [measurement_log]
+  outputs: [csv]
+  can_check:
+    - "上电波形、电机电流、纹波、待机功耗、热像；近场探头预扫描"
+  limits:
+    - "无自动化接口；pass/fail 要人工录入。建议在检查器里支持 status=manual_pending 的规则，实测结果以 CSV/JSON 回填"
+  notes: |-
+    UNVERIFIED：只是占位记录，没有扫描 USB/LAN 上的仪器。
+
+- id: V-REVIEW
+  name: Human / LLM review checklist
+  methods: [review]
+  status: installed
+  invocation: |-
+    # 从 catalog 里取 verify.method = review 的条目，生成 checklist 给人或 LLM 评审，结果回填 pass/fail/evidence
+  inputs: [catalog_rules, design_files, screenshots]
+  outputs: [markdown, json]
+  can_check:
+    - "无法机械判定的规则：方案取舍、布局意图、图纸可读性、位号-功能对应、库符号是否对照数据手册"
+  limits:
+    - "结论不可复现；LLM 评审必须附 evidence（引用具体位号/网络/坐标），不能只给结论"
+  notes: |-
+    UNVERIFIED：流程设计，无实现。

@@ -1,0 +1,104 @@
+# Catalog rule id -> custom KiCad DRC rules (rule language v1). Thresholds are NEVER written here: ``param`` names a
+# catalog ``parameters[].name`` and drc_rule.py reads op/value/unit from catalog/*.yaml
+# (lengths in mil/inch are converted to mm; ``scale`` multiplies the converted value, e.g. 0.5 turns a diameter
+# difference into a radial annular ring).
+#
+# Sub-rule fields
+#   key          suffix of the .kicad_dru rule name ("<RULE_ID>/<key>"); the first, unsuffixed rule is not used so every
+#                violation can be traced to the sub-rule that produced it
+#   constraint   a KiCad constraint type (track_width, clearance, hole_size, annular_width, hole_to_hole, edge_clearance,
+#                silk_clearance, text_height, text_thickness, disallow, ...)
+#   bound        min | max (which side of the constraint the threshold sets); ``disallow`` takes ``arg`` instead
+#   param        catalog parameter name
+#   condition    KiCad rule condition (optional); layer: KiCad (layer ...) scope (optional)
+#   shape        per_object | pairwise  (how the probe pass widens the threshold to observe the closest approach)
+# Sub-rules of one catalog rule are written to ONE file, so their conditions must be mutually exclusive when they use
+# the same constraint type (KiCad lets the last matching rule of a constraint type mask earlier ones).
+#
+# ``builtin`` rules count violations of KiCad's own checks (types) and may switch default-ignored checks on.
+
+DFM-STK-001:
+  rules:
+    - {key: track_width, constraint: track_width, bound: min, param: min_trace_width_2layer_1oz, shape: per_object}
+    - {key: clearance, constraint: clearance, bound: min, param: min_trace_width_2layer_1oz, shape: pairwise,
+       note: "the catalog states the spacing floor with the same number: '同时线距 >= 0.10 mm'"}
+
+DFM-STK-002:
+  rules:
+    - {key: drill, constraint: hole_size, bound: min, param: min_drill, shape: per_object}
+    - {key: pth_ring, constraint: annular_width, bound: min, param: pth_annular_ring, condition: "A.Type == 'Pad'", shape: per_object}
+    - {key: via_ring, constraint: annular_width, bound: min, param: via_pad_over_hole, scale: 0.5, condition: "A.Type == 'Via'", shape: per_object,
+       note: "catalog gives via pad diameter minus hole >= 0.1 mm, i.e. a radial ring of half that"}
+    - {key: pad_hole_to_hole, constraint: hole_to_hole, bound: min, param: pad_hole_to_hole, condition: "A.Type == 'Pad' || B.Type == 'Pad'", shape: pairwise}
+    - {key: via_hole_to_hole, constraint: hole_to_hole, bound: min, param: via_hole_to_hole, condition: "A.Type == 'Via' && B.Type == 'Via'", shape: pairwise}
+
+DFM-STK-003:
+  rules:
+    - {key: pad_to_pad, constraint: clearance, bound: min, param: smd_pad_to_pad, condition: "A.Type == 'Pad' && B.Type == 'Pad'", shape: pairwise}
+    - {key: pad_to_track, constraint: clearance, bound: min, param: pad_to_track_1oz, condition: "A.Type == 'Pad' && B.Type == 'Track'", shape: pairwise}
+    - {key: via_hole_to_track, constraint: hole_clearance, bound: min, param: via_hole_to_track, condition: "A.Type == 'Via' && B.Type == 'Track'", shape: pairwise}
+    - {key: pth_to_track, constraint: hole_clearance, bound: min, param: pth_to_track,
+       condition: "A.Type == 'Pad' && A.Pad_Type == 'Through-hole' && B.Type == 'Track'", shape: pairwise}
+    - {key: npth_to_track, constraint: hole_clearance, bound: min, param: npth_to_track,
+       condition: "A.Type == 'Pad' && A.Pad_Type == 'NPTH, mechanical' && B.Type == 'Track'", shape: pairwise}
+
+DFM-LIB-005:
+  rules:
+    - {key: pth_ring, constraint: annular_width, bound: min, param: pth_annular_ring_recommended_2layer_1oz, condition: "A.Type == 'Pad'", shape: per_object}
+    - {key: pth_hole, constraint: hole_size, bound: min, param: pth_recommended_min_hole,
+       condition: "A.Type == 'Pad' && A.Pad_Type == 'Through-hole'", shape: per_object}
+
+DFM-LIB-007:
+  rules:
+    - {key: silk_to_pad, constraint: silk_clearance, bound: min, param: silk_to_pad_clearance_min, condition: "A.Type == 'Pad' || B.Type == 'Pad'", shape: pairwise}
+
+DFM-MFG-007:
+  rules:
+    - {key: text_height, constraint: text_height, bound: min, param: silk_text_height_min,
+       condition: "A.Layer == 'F.Silkscreen' || A.Layer == 'B.Silkscreen'", shape: per_object}
+    - {key: text_thickness, constraint: text_thickness, bound: min, param: silk_line_width_min,
+       condition: "A.Layer == 'F.Silkscreen' || A.Layer == 'B.Silkscreen'", shape: per_object}
+
+DFM-FLR-004:
+  rules:
+    - {key: npth_hole, constraint: hole_size, bound: min, param: min_npth_diameter, condition: "A.Type == 'Pad' && A.Pad_Type == 'NPTH, mechanical'", shape: per_object}
+    - {key: copper_to_slot, constraint: edge_clearance, bound: min, param: copper_to_routed_slot, condition: "A.Type != 'Footprint'", shape: pairwise}
+
+DFM-PLN-001:
+  rules:
+    - {key: copper_to_edge, constraint: edge_clearance, bound: min, param: copper_to_routed_edge, condition: "A.Type != 'Footprint'", shape: pairwise}
+
+GEN-FLR-007:
+  rules:
+    - {key: copper_to_edge, constraint: edge_clearance, bound: min, param: copper_to_routed_edge, condition: "A.Type != 'Footprint'", shape: pairwise}
+
+GEN-STK-005:
+  rules:
+    - {key: track_width, constraint: track_width, bound: min, param: min_track_width_1oz_2layer, shape: per_object}
+    - {key: clearance, constraint: clearance, bound: min, param: min_clearance_1oz_2layer, shape: pairwise}
+    - {key: via_drill, constraint: hole_size, bound: min, param: min_via_hole, condition: "A.Type == 'Via'", shape: per_object}
+    - {key: via_diameter, constraint: via_diameter, bound: min, param: min_via_outer_diameter, shape: per_object}
+    - {key: pth_ring, constraint: annular_width, bound: min, param: min_pth_annular_ring_2layer_1oz, condition: "A.Type == 'Pad'", shape: per_object}
+    - {key: copper_to_edge, constraint: edge_clearance, bound: min, param: copper_to_routed_edge, condition: "A.Type != 'Footprint'", shape: pairwise}
+
+GEN-FLR-008:
+  rules:
+    - {key: npth_hole, constraint: hole_size, bound: min, param: min_npth_hole, condition: "A.Type == 'Pad' && A.Pad_Type == 'NPTH, mechanical'", shape: per_object}
+    - {key: hole_to_hole, constraint: hole_to_hole, bound: min, param: min_hole_to_hole, shape: pairwise}
+
+GEN-STK-004:
+  rules:
+    - {key: no_bottom_parts, constraint: disallow, arg: footprint, layer: B.Cu, threshold_text: "0 footprints on B.Cu (catalog check: (rule no_bottom_parts (layer B.Cu) (constraint disallow footprint)))"}
+
+# Built-in KiCad checks that must report nothing. ``enable`` switches default-ignored checks on in the *copied* .kicad_pro.
+DFM-PLC-002:
+  builtin:
+    types: [courtyards_overlap, missing_courtyard]
+    enable: [missing_courtyard]
+    threshold_text: "courtyards_overlap and missing_courtyard violations == 0 (catalog check)"
+
+GEN-NET-007:
+  builtin:
+    types: [shorting_items]
+    unconnected: true
+    threshold_text: "'Missing connection between items' (unconnected_items) == 0 and 'Items shorting two nets' == 0 (catalog check)"

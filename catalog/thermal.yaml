@@ -1,0 +1,705 @@
+# 热设计规则库（面向 2 层板、AMS1117 / SOT-223、N-MOSFET、裸露焊盘封装）。
+# 数值来自 TI SPRA953 / AN-2020 / AN-1520 / AN-1028 / SLMA002 / SLUA271、AMS1117 与 AO3400A 数据手册等，均实际读过原文。
+# 缺口：LED 降额、电感 / 二极管温升、晶振与精密器件的热梯度、IEC/JEDEC 标准原文（JESD51 系列无公开全文，只能转引 TI 的说明）。
+
+# ───────────────────────── architecture ─────────────────────────
+- id: THM-ARC-001
+  title: 数据手册的 θJA 只对它的测试板成立
+  domain: thermal
+  stage: architecture
+  severity: must
+  rule: 不要把数据手册的 θJA 直接代入自己的板子算结温；每次引用 θJA 都记下它的测试板条件（JESD51 的 1s / 2s2p、尺寸、铜厚、气流），再用实测或建模得到自己板子的有效 θJA（θJA,effective）。
+  rationale: θJA 不是封装的固有属性。JEDEC 静止空气下 70–95% 的热量经测试板散出，测试板就是散热器；板子设计对 θJA 的影响强度约 100%，远大于环境温度（7%）和功耗（3%）。
+  applies_to: [all-ics, ldo, mosfet]
+  parameters:
+    - {name: heat_fraction_through_pcb, op: range, value: [70, 95], unit: "%", note: "JEDEC 静止空气测试里经测试板散出的比例"}
+    - {name: theta_ja_1s_vs_2s2p_variation, op: "<=", value: 50, unit: "%", note: "同一封装仅因 1s 与 2s2p 测试板不同，θJA 可差到约 50%"}
+  verify:
+    - method: review
+      tool: "BOM 器件热数据表"
+      check: "对每个功耗 > 0.1 W 的器件，表中记录 θJA 值及其测试板条件（来自数据手册脚注）；没有条件说明的 θJA 标记为不可信"
+      automatable: manual
+    - method: thermal_sim
+      tool: "热阻网络估算（见 THM-VER-005）或实测"
+      check: "得到自己板子的 θJA,effective 并用于 THM-ARC-002 的结温计算"
+      automatable: partial
+  sources:
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§1 RθJA, §1.1 Usage, Table 1-1"}
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2"}
+    - {title: "AO3400A 30V N-Channel MOSFET datasheet", url: "https://www.aosmd.com/res/data_sheets/AO3400A.pdf", publisher: "Alpha and Omega Semiconductor", kind: datasheet, section: "Thermal Characteristics, note A"}
+    - {title: "JESD51 series (Methods for measuring thermal characteristics of IC packages)", ref: "JEDEC JESD51-1, -2, -5, -6, -7", publisher: JEDEC, kind: standard}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-ARC-002
+  title: 在最高环境温度下算每个发热件的结温
+  domain: thermal
+  stage: architecture
+  severity: must
+  rule: 对每个功耗显著的器件按 Tj = Ta,max + P × θJA,effective 计算结温，Ta,max 取外壳内最高环境（不是室温），Tj 必须低于数据手册允许的最高结温并留设计余量；数据手册的额定功率 / 电流是在 25 °C 下给的，要按 Ta,max 降额。热关断阈值只是保护，不是设计余量。
+  rationale: 可靠性取决于结温而不是环境温度；功率额定值随环境温度升高而下降。例如 AO3400A 的 PD 在 25 °C 为 1.4 W，70 °C 降为 0.9 W；AMS1117 的结温上限为 125 °C，而热关断在约 165 °C 才触发。
+  applies_to: [ldo, mosfet, all-ics]
+  parameters:
+    - {name: ams1117_tj_max, op: "<=", value: 125, unit: "°C", note: "数据手册：最高结温不得超过 125 °C"}
+    - {name: ams1117_thermal_shutdown, op: "==", value: 165, unit: "°C", note: "保护阈值，不作为设计余量"}
+    - {name: ao3400a_tj_max, op: "<=", value: 150, unit: "°C"}
+    - {name: ao3400a_pd_25c, op: "==", value: 1.4, unit: W, note: "基于 θJA ≤ 10 s 值与 1 in² 2 oz 铜板"}
+    - {name: ao3400a_pd_70c, op: "==", value: 0.9, unit: W}
+    - {name: tj_design_margin, op: qualitative, value: null, note: "余量取多少没有统一规定；邻近元件的额定温度可能比器件本身更严（见 THM-PLC-001）"}
+  verify:
+    - method: thermal_sim
+      tool: "Python 脚本：器件功耗表 + θJA,effective + Ta,max"
+      check: "对每个器件计算 Tj，要求 Tj ≤ Tj,max − 余量；列出余量最小的 3 个器件"
+      automatable: full
+    - method: bench
+      tool: "热电偶 / 热像仪（见 THM-VER-001、THM-VER-002）"
+      check: "在 Ta,max 与最大负载下实测外壳温度并换算 Tj，与计算值相差应能解释"
+      automatable: manual
+  sources:
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§6, §7 (operating temperature definitions)"}
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Absolute Maximum Ratings; Thermal Considerations"}
+    - {title: "AO3400A 30V N-Channel MOSFET datasheet", url: "https://www.aosmd.com/res/data_sheets/AO3400A.pdf", publisher: "Alpha and Omega Semiconductor", kind: datasheet, section: "Absolute Maximum Ratings"}
+    - {title: "AN-1028 Maximum Power Enhancement Techniques for Power Packages", url: "https://www.ti.com/lit/pdf/snva036", publisher: "Texas Instruments", kind: app_note, section: "§2 Theory, eq. 1"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-ARC-003
+  title: 线性稳压器的功耗按最坏输入电压和最大电流算
+  domain: thermal
+  stage: architecture
+  severity: must
+  rule: LDO（含 AMS1117）的功耗 PD = (Vin − Vout) × Iout，取最高输入电压与最大负载电流；由 (Tj,max − Ta,max)/PD 得到允许的 θJA，大于板子能实现的 θJA 时，加铜皮、降低输入电压（前级降压 / 压降电阻）或换开关稳压器。
+  rationale: LDO 把压差全部变成热。AMS1117 在 SOT-223 上数据手册 θJA 约 90 °C/W（46 到 >90 °C/W，取决于铜皮和安装），结温上限 125 °C，裕量很容易被吃光。
+  applies_to: [ldo, ams1117, sot-223]
+  parameters:
+    - {name: ams1117_theta_jc_tab, op: "==", value: 15, unit: "°C/W", note: "结到散热片（tab）"}
+    - {name: ams1117_sot223_theta_ja_datasheet, op: "==", value: 90, unit: "°C/W", note: "带星号：可从 46 变到 >90，取决于铜皮和安装方式"}
+    - {name: ams1117_theta_ja_best_case, op: ">=", value: 45, unit: "°C/W", note: "数据手册称总热阻可低至 45 °C/W，需要大的 PCB 并至少一层铜皮散热"}
+  verify:
+    - method: thermal_sim
+      tool: "Python / 表格"
+      check: "PD = (Vin_max − Vout) × Iout_max；θJA,needed = (125 − Ta,max)/PD；要求 θJA,needed ≥ 板子 θJA,effective（见 THM-PLN-001 的铜皮面积表）"
+      automatable: full
+    - method: bench
+      tool: "热电偶贴 tab / 热像仪"
+      check: "在最高输入电压、最大负载（Wi-Fi 峰值）下实测 tab 温度，再按 Tj = Ttab + PD × 15 °C/W 估算结温"
+      automatable: manual
+  sources:
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Absolute Maximum Ratings; Thermal Considerations"}
+    - {title: "Understanding Thermal Characteristic of SOT-223 Package (AN044)", url: "https://www.richtek.com/Design%20Support/Technical%20Document/AN044?sc_lang=en", publisher: Richtek, kind: app_note}
+  confidence: high
+  conflicts: "不同厂家的 AMS1117 / 1117 系列数据手册给出的 SOT-223 θJA 差别很大（88、117、136、150 °C/W 都出现过）。以所选料号对应厂家的数据手册为准，并按自己板子的铜皮面积估算；不要用一个通用数字。"
+  tags: [cat-feeder]
+
+- id: THM-ARC-004
+  title: 2 层板上预期 θJA 比 4 层测试板的数据差
+  domain: thermal
+  stage: architecture
+  severity: should
+  rule: 数据手册的 θJA 来自 4 层高 K 板（JEDEC 2s2p / JESD51-7）时，2 层板上的有效 θJA 预期更高；没有 1s 值可用时，计算按 θJA 增大约 30–50% 取悲观值，并用实测修正。
+  rationale: TI 称裸露焊盘封装的 θJA 基于带过孔的 4 层高 K 板；JEDEC 1s 与 2s2p 对同一封装可差约 50%，而 4 层内部地平面可把一块设计良好的 2 层板再改善最多约 30%。
+  applies_to: [2-layer, qfn, exposed-pad, sot-223]
+  parameters:
+    - {name: theta_ja_penalty_2layer_vs_2s2p, op: range, value: [1.3, 1.5], unit: "x", note: "由 30% 与 50% 两个来源数字推出，并非原文直接给出的倍数；confidence 因而取 medium"}
+  verify:
+    - method: thermal_sim
+      tool: "热阻网络估算（THM-VER-005）或实测"
+      check: "对 2 层板上的主要发热件，用悲观 θJA（数据手册值 × 1.3–1.5）重算 THM-ARC-002，仍满足 Tj 限值，或改用 1s / 实测值"
+      automatable: partial
+  sources:
+    - {title: "SLUA271 QFN and SON PCB Attachment", url: "https://www.ti.com/lit/an/slua271d/slua271d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.4"}
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§1.2 Test Card Impact"}
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.1"}
+  confidence: medium
+  tags: [cat-feeder]
+
+- id: THM-ARC-005
+  title: 高海拔使用时放大 θJA
+  domain: thermal
+  stage: architecture
+  severity: consider
+  rule: 产品可能在高海拔使用时，把海平面测得 / 给出的 θJA 乘以海拔系数：3000 ft 约 1.1、5000 ft 约 1.14、7000 ft 约 1.17、8350 ft 约 1.2。
+  rationale: 空气变稀使对流散热变差；IBM 的研究显示 8000 ft 处器件会比海平面热约 20%。
+  applies_to: [altitude]
+  parameters:
+    - {name: altitude_factor_3000ft, op: "==", value: 1.1, unit: "x"}
+    - {name: altitude_factor_5000ft, op: "==", value: 1.14, unit: "x"}
+    - {name: altitude_factor_7000ft, op: "==", value: 1.17, unit: "x"}
+    - {name: altitude_factor_8350ft, op: "==", value: 1.2, unit: "x"}
+  verify:
+    - method: thermal_sim
+      tool: "热阻网络估算脚本"
+      check: "把 θJA,effective 乘上目标海拔系数后重算 Tj，仍满足 THM-ARC-002"
+      automatable: full
+  sources:
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§1.5 Altitude, Table 1-2"}
+  confidence: high
+
+- id: THM-ARC-006
+  title: MOSFET 导通损耗按热态 Rds(on) 算
+  domain: thermal
+  stage: architecture
+  severity: must
+  rule: MOSFET 导通损耗 P = I² × Rds(on)，Rds(on) 取工作结温下、与实际栅压对应的最大值（不是 25 °C 典型值）；数据手册给出的热阻（以及与之关联的电流、功耗额定值）基于其测试板，换板后重新核算。
+  rationale: Rds(on) 随结温上升（AO3400A VGS = 10 V：25 °C 时典型 18 mΩ、最大 26.5 mΩ，125 °C 时典型 28 mΩ、最大 38 mΩ）；其 θJA 是在 1 in² 2 oz 铜 FR-4 板上测的（稳态典型 100、最大 125 °C/W），功耗额定值由该热阻推出（5.7 A 的连续电流额定值与之关联）。
+  applies_to: [mosfet, motor-driver, ao3400a]
+  parameters:
+    - {name: ao3400a_rds_on_hot_over_cold, op: range, value: [1.43, 1.56], unit: "x", note: "由数据手册 125 °C 与 25 °C 的最大 / 典型值之比推出（38/26.5、28/18）"}
+    - {name: ao3400a_rds_on_vgs_2p5v_max, op: "<=", value: 48, unit: mOhm, note: "25 °C，VGS = 2.5 V，ID = 3 A；栅极由 3.3 V 驱动时，按 2.5 V 行取保守值"}
+    - {name: ao3400a_theta_ja_steady_max, op: "==", value: 125, unit: "°C/W", note: "稳态最大，1 in² 2 oz 铜 FR-4 板"}
+  verify:
+    - method: thermal_sim
+      tool: "Python 脚本：I²·Rds(on)(Tj) 与 Tj = Ta + P·θJA 迭代"
+      check: "例：2 A、热态 Rds(on) 约 48 mΩ × 1.4 ≈ 67 mΩ → P ≈ 0.27 W；θJA 125 °C/W 时温升约 34 °C；叠加 Ta,max 后 Tj < 150 °C 并有余量"
+      automatable: full
+    - method: bom_check
+      tool: "器件数据手册表"
+      check: "数据手册热阻所依赖的测试板（铜面积、铜厚）与自己板子对比，不一致时降额"
+      automatable: manual
+  sources:
+    - {title: "AO3400A 30V N-Channel MOSFET datasheet", url: "https://www.aosmd.com/res/data_sheets/AO3400A.pdf", publisher: "Alpha and Omega Semiconductor", kind: datasheet, section: "Electrical Characteristics RDS(ON); Thermal Characteristics notes A, D"}
+    - {title: "AN-1028 Maximum Power Enhancement Techniques for Power Packages", url: "https://www.ti.com/lit/pdf/snva036", publisher: "Texas Instruments", kind: app_note, section: "§2, Appendix A"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-ARC-007
+  title: 电机堵转 / 启动的脉冲要对照 MOSFET SOA
+  domain: thermal
+  stage: architecture
+  severity: consider
+  rule: 对电机堵转、启动冲击等脉冲电流，在 MOSFET 的 SOA 曲线上按脉宽和电压核对工作点；注意 SOA 曲线是单脉冲、在其测试板热阻下得到的，重复脉冲或换板要降额。
+  rationale: SOA 曲线基于特定板的结到环境热阻和 Tj,max；板子散热更差、脉冲重复时，实际可用区域更小。
+  applies_to: [mosfet, motor-driver, ao3400a]
+  verify:
+    - method: review
+      tool: "数据手册 SOA 曲线 + 电机堵转电流测量"
+      check: "在示波器上测堵转电流与持续时间，落在 SOA 曲线对应脉宽的下方并有余量；固件应有限流或超时保护"
+      automatable: manual
+    - method: spice
+      tool: "ngspice + 厂商 MOSFET 热子电路模型（如有）"
+      check: "堵转瞬态下 Tj 峰值 < Tj,max"
+      automatable: partial
+  sources:
+    - {title: "AO3400A 30V N-Channel MOSFET datasheet", url: "https://www.aosmd.com/res/data_sheets/AO3400A.pdf", publisher: "Alpha and Omega Semiconductor", kind: datasheet, section: "Thermal Characteristics note F (SOA curve)"}
+  confidence: low
+  conflicts: "本库只读到该数据手册对 SOA 曲线的脚注（单脉冲、基于其热阻测试板），没有找到关于电机类负载 SOA 评估方法的更权威来源，因此 confidence 为 low。"
+  tags: [cat-feeder]
+
+- id: THM-ARC-008
+  title: 铝电解电容按本体温度算寿命并远离热源
+  domain: thermal
+  stage: architecture
+  severity: should
+  rule: 估算电解电容的寿命时用电容本体的实际温度（局部环境温度加纹波电流自热），而不是整机环境温度；工作温度每降低 10 °C，寿命大约翻倍；选额定温度高一档（如 105 °C）的型号，并避免放在 LDO、MOSFET、电感等热源旁。
+  rationale: 非固态铝电解电容的电解液蒸发遵循 Arrhenius 规律，寿命强烈依赖芯子温度，纹波电流自热又会进一步抬高芯子温度；「10 °C 法则」是各厂家通用的估算方法。
+  applies_to: [electrolytic-capacitor, bulk-capacitor]
+  parameters:
+    - {name: life_doubling_per_delta_t, op: "==", value: 10, unit: "°C", note: "寿命每降 10 °C 翻倍（10-degree rule）；来自二手资料对各厂家方法的归纳"}
+  verify:
+    - method: bom_check
+      tool: "电容数据手册寿命曲线 / 厂商寿命计算器（如 TDK AlCap）"
+      check: "输入局部环境温度、纹波电流与额定纹波比，得到的预期寿命满足产品寿命要求"
+      automatable: partial
+    - method: bench
+      tool: "热电偶贴电容外壳"
+      check: "满载稳态时电容外壳温度比额定上限低至少 10–20 °C（具体按寿命目标）"
+      automatable: manual
+  sources:
+    - {title: "Aluminum electrolytic capacitors: General technical information", url: "https://www.tdk-electronics.tdk.com/blob/185386/download/4/pdf-generaltechnicalinformation.pdf", publisher: "TDK Electronics (EPCOS)", kind: vendor_guide, section: "§4 Ripple current / §5 Useful life"}
+    - {title: "Electrolytic capacitor (Lifetime and the 10-degree rule)", url: "https://en.wikipedia.org/wiki/Electrolytic_capacitor", publisher: Wikipedia, kind: blog, section: "Lifetime"}
+  confidence: medium
+  conflicts: "没能读到 Nichicon / Panasonic / Rubycon 等厂家的原版寿命文档（均无法获取），翻倍规则的出处只有 Wikipedia 对各厂家方法的归纳；TDK 文档确认了 Arrhenius 关系和芯子温度决定寿命，但页面里没有直接写出 10 °C 翻倍的数字。"
+  tags: [cat-feeder]
+
+# ───────────────────────── library ─────────────────────────
+- id: THM-LIB-001
+  title: 带裸露焊盘的封装必须有等大的散热焊盘并焊在板上
+  domain: thermal
+  stage: library
+  severity: must
+  rule: 所有带裸露散热焊盘（QFN、SON、PowerPAD、模块底部地焊盘）的封装，PCB 上的散热焊盘做成与封装裸露焊盘等大（TQFP 类按数据手册的最大尺寸）；散热焊盘与引脚焊盘间距 ≥ 0.2 mm；该焊盘必须焊接到板上，不能省略。
+  rationale: 数据手册的热性能以焊接状态为前提，不焊接则热量排不出去，影响性能和可靠性。
+  applies_to: [qfn, son, powerpad, exposed-pad, module]
+  parameters:
+    - {name: ep_land_to_lead_pad_gap, op: ">=", value: 0.2, unit: mm, note: "TI：经验表明 0.2 mm 对大多数设计足够，防桥连"}
+    - {name: chip_ground_pad_min_vias, op: ">=", value: 9, unit: pcs, note: "Espressif 对芯片底部地焊盘的要求（至少 9 个地过孔）；模块的地焊盘以模块规格书为准"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "对每个带 EP 的封装，PCB 上散热焊盘面积与数据手册裸露焊盘面积之比在 0.95–1.0；与最近引脚焊盘间距 ≥ 0.2 mm；该焊盘有网络（通常 GND）且连接到铜皮"
+      automatable: partial
+  sources:
+    - {title: "SLUA271 QFN and SON PCB Attachment", url: "https://www.ti.com/lit/an/slua271d/slua271d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.4 Exposed Pad PCB Design"}
+    - {title: "SLMA002 PowerPAD Thermally Enhanced Package", url: "https://www.ti.com/lit/an/slma002h/slma002h.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.4 Thermal Vias; Summary"}
+    - {title: "ESP32-C3 Hardware Design Guidelines: PCB Layout Design", url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html", publisher: Espressif, kind: vendor_guide, section: "Ground pad / thermal pad (EPAD)"}
+  confidence: high
+  tags: [cat-feeder]
+
+# ───────────────────────── placement ─────────────────────────
+- id: THM-PLC-001
+  title: 热源与怕热元件分开放
+  domain: thermal
+  stage: placement
+  severity: should
+  rule: 把 LDO、MOSFET、分流电阻、整流 / 续流二极管等发热件与电解电容、晶振、温度传感器、精密基准等怕热元件分开放置，不要相邻堆叠；邻近元件的额定温度要计入允许的局部温度，必要时据此压低发热件的结温目标。
+  rationale: 电解电容寿命随温度指数下降；邻近元件的额定温度会限制可接受的结温（TI 的例子：选用 100 °C 额定电容并因其靠近转换器，把结温目标压到 90 °C）；AMS1117 数据手册也指出热阻会受板上其它元件的热相互作用影响。
+  applies_to: [electrolytic-capacitor, crystal, temperature-sensor, ldo, mosfet]
+  parameters:
+    - {name: hot_to_sensitive_distance, op: maximize, value: null, note: "没有找到权威来源给出具体距离；以热仿真 / 实测的局部温度为准"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "给定「发热件」与「怕热件」位号清单，输出每个怕热件到最近发热件的距离，并按距离排序供评审；距离最近的 3 对要有热估算或实测支持"
+      automatable: partial
+    - method: thermal_sim
+      tool: "简易 FEM / 热阻网络"
+      check: "估算怕热件处的局部温度，加纹波自热后满足其额定温度与寿命要求"
+      automatable: manual
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.1 Example: Calculating Your Required θJA"}
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Thermal Considerations"}
+    - {title: "Aluminum electrolytic capacitors: General technical information", url: "https://www.tdk-electronics.tdk.com/blob/185386/download/4/pdf-generaltechnicalinformation.pdf", publisher: "TDK Electronics (EPCOS)", kind: vendor_guide, section: "§4–5"}
+  confidence: medium
+  conflicts: "晶振和精密器件需要远离热源的说法流传很广，但本库没找到给出具体距离的一手来源；这里只写方向性规则，具体距离留给仿真或实测。"
+  tags: [cat-feeder]
+
+- id: THM-PLC-002
+  title: 外壳内的环境温度和空气流动要按实际假设
+  domain: thermal
+  stage: placement
+  severity: should
+  rule: 密闭或半密闭外壳里，用靠近发热件的空气温度作为环境温度，而不是室温；经验面积规则（THM-STK-003）假设外壳不阻碍板子两面的自然对流，如果板子贴壁、灌封或被遮挡，不能直接套用。
+  rationale: 对流和辐射散热依赖周围空气；不同标准对「环境温度」测点的定义也不同（NEBS 取进风口，AEC 取器件下方，JEDEC 取板前的气流）。有气流时所需板面积可减半，没有时反之。
+  applies_to: [enclosure, airflow]
+  parameters:
+    - {name: airflow_board_area_reduction, op: "<=", value: 50, unit: "%", note: "有气流通常最多可把所需板面积减半"}
+  verify:
+    - method: bench
+      tool: "热电偶放在发热件旁（离板面 ≥ 1 cm）的空气中，外壳盖好"
+      check: "满载稳态时记录局部空气温度，作为 Ta,max 的依据并代入 THM-ARC-002"
+      automatable: manual
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.1 Rule 1: Board Size"}
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§7 Ambient Air Temperature"}
+  confidence: medium
+  tags: [cat-feeder]
+
+# ───────────────────────── stackup ─────────────────────────
+- id: THM-STK-001
+  title: 按功耗选铜厚
+  domain: thermal
+  stage: stackup
+  severity: consider
+  rule: 对 DC-DC 类功率器件，铜厚至少 1 oz；功耗 > 3 W 用 2 oz；> 6 W 用 4 oz。2 层板上用 2 oz 替代 1 oz 可让 θJA 下降约 25%（同一块 3×3 in 板 28.3 → 21.2 °C/W）。
+  rationale: 铜的横向热阻与厚度成反比，更厚的铜把热量更快铺开；JLC 的 2 层板外层可选 1、2、2.5、3.5、4.5 oz，但线宽线距限制随铜厚变大。
+  applies_to: [power, 2-layer]
+  parameters:
+    - {name: copper_min_for_dcdc, op: ">=", value: 1, unit: oz}
+    - {name: copper_2oz_for_power_over, op: ">", value: 3, unit: W}
+    - {name: copper_4oz_for_power_over, op: ">", value: 6, unit: W}
+  verify:
+    - method: thermal_sim
+      tool: "热阻网络估算（THM-VER-005）"
+      check: "比较 1 oz 与 2 oz 时的 θCu 和 θJA,effective，确认选择满足 THM-ARC-002"
+      automatable: partial
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.3 Rule 3: Copper Thickness"}
+    - {title: "JLCPCB PCB Capabilities", url: "https://jlcpcb.com/capabilities/pcb-capabilities", publisher: JLCPCB, kind: vendor_guide, section: "Board Thickness and Copper; Traces and Spacing"}
+  confidence: high
+  conflicts: "AN-2020 的铜厚阈值是针对 DC-DC 转换器写的，LDO 和 MOSFET 直接套用属于类比。猫咪喂食器功率小（<1 W），1 oz 通常足够。"
+  tags: [cat-feeder]
+
+- id: THM-STK-002
+  title: 需要更低热阻时优先加内层地平面
+  domain: thermal
+  stage: stackup
+  severity: consider
+  rule: 2 层板热裕量不足时，改用 4 层板，把裸露焊盘通过过孔连到内层地和底层地；4 层板的内层地平面可让一块设计良好的 2 层板再改善最多约 30%。
+  rationale: 内层地平面是大面积横向导热层，缩短到板边的热路径；单靠 2 层板的铜面积很难做到。
+  applies_to: [2-layer, 4-layer, exposed-pad]
+  parameters:
+    - {name: improvement_with_internal_planes, op: "<=", value: 30, unit: "%", note: "「最多约」，来自 TI 对 2 层与 4 层的比较"}
+  verify:
+    - method: thermal_sim
+      tool: "热阻网络估算或 FEM"
+      check: "2 层方案 Tj 余量不足 THM-ARC-002 要求时，估算 4 层方案并比较成本"
+      automatable: manual
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.1"}
+    - {title: "AN-1520 A Guide to Board Layout for Best Thermal Resistance for Exposed Packages", url: "https://www.ti.com/lit/an/snva183b/snva183b.pdf", publisher: "Texas Instruments", kind: app_note, section: "§6 PCB Design Recommendations"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-STK-003
+  title: 用板面积规则做第一遍可行性检查
+  domain: thermal
+  stage: stackup
+  severity: consider
+  rule: 自然对流、无散热器、两面实铜、热量能传到板边的条件下，每 1 W 耗散约需要 15.29 cm²（2.37 in²）板面积才能让温升限制在 40 °C；已知 θJC 时用 板面积(cm²) ≈ 500 / (θJA − θJC) 估算最小板面积。
+  rationale: 这是 TI 从热阻网络推出的经验规则，用于在布局之前判断板子的尺寸和封装能否承受目标功耗。
+  applies_to: [power, feasibility]
+  parameters:
+    - {name: board_area_per_watt_40c_rise, op: ">=", value: 15.29, unit: "cm2/W", note: "两面实铜、自然对流、外壳不阻碍对流"}
+    - {name: board_area_coefficient, op: "==", value: 500, unit: "°C·cm2/W", note: "板面积 ≈ 500 /(θJA − θJC)"}
+  verify:
+    - method: thermal_sim
+      tool: "Python 脚本"
+      check: "Σ 板上耗散功率 × 15.29 cm²/W 与板面积比较；局部大功耗件用 θJA − θJC 公式估算它需要的铜面积"
+      automatable: full
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.1 Rule 1: Board Size, eq. 9–10"}
+  confidence: high
+  tags: [cat-feeder]
+
+# ───────────────────────── routing ─────────────────────────
+- id: THM-RTE-001
+  title: 大电流走线按 IPC-2152 的温升来定宽
+  domain: thermal
+  stage: routing
+  severity: should
+  rule: 大电流走线（电机、电源入口）先定温升预算，再按 IPC-2152 的曲线（区分内层 / 外层、考虑相邻铜平面与板厚）确定线宽，而不是只用旧的 IPC-2221 经验图；同一电流下内层要比外层更宽。
+  rationale: IPC-2152 专门针对导体载流能力，包含内外层、铜平面距离、板厚、铜厚等修正；仅用旧图容易偏保守或偏乐观。线宽决定铜的 I²R 发热和温升。
+  applies_to: [trace, motor-driver, power-input]
+  parameters:
+    - {name: trace_temp_rise_budget, op: minimize, value: null, unit: "°C", note: "没有统一规定，由产品和邻近元件的额定温度决定"}
+  verify:
+    - method: tline_calc
+      tool: "IPC-2152 计算器 / 载流计算脚本"
+      check: "输入电流、铜厚、内 / 外层、温升预算，求最小线宽；板上对应网络的最窄处（含焊盘颈缩、过孔）不得小于该宽度"
+      automatable: full
+    - method: bench
+      tool: "热像仪 / 热电偶"
+      check: "满载稳态下走线温升不超过预算"
+      automatable: manual
+  sources:
+    - {title: "IPC-2152 Standard for Determining Current-Carrying Capacity in Printed Board Design (table of contents)", url: "https://www.electronics.org/TOC/IPC-2152.pdf", publisher: IPC, kind: standard, section: "§5 Conductor sizing charts; Appendix A.2 Derating, A.4.6 Copper planes"}
+    - {title: "PCB Design Rules and Guidelines: A Complete Best Practices Guide (copper current table, approx. 10 °C rise)", url: "https://jlcpcb.com/blog/pcb-design-rules-best-practices", publisher: JLCPCB, kind: vendor_guide}
+  confidence: low
+  conflicts: "只读到 IPC-2152 公开的目录页（确认了内外层、铜平面、降额等章节存在），没有读到图表本身；JLC 博客给了约 10 °C 温升的近似表，其数字比 IPC-2221 的图略乐观（例如 5 A、1 oz 外层写约 100 mil），因此不把它们当作参数。线宽要用 IPC-2152 计算器核算。"
+  tags: [cat-feeder]
+
+- id: THM-RTE-002
+  title: 散热过孔的孔径、间距与数量
+  domain: thermal
+  stage: routing
+  severity: should
+  rule: 裸露焊盘下的散热过孔钻孔 ≤ 0.33 mm（13 mil）、以约 1.0–1.2 mm 间距排成阵列并尽量排满；焊盘小、过孔数量受限时，把过孔放在焊盘外围，且不要在小焊盘封装上改用 0.2 mm 的小孔（比 0.33 mm 孔使 θJA 增加约 15–25%）。小芯片 5–9 个过孔通常够用，边际收益递减。
+  rationale: 过孔是焊盘热量进入内层 / 底层铜皮的主要路径；孔径小可减少焊料沿孔壁流失，但太小会增加热阻。
+  applies_to: [qfn, son, powerpad, exposed-pad]
+  parameters:
+    - {name: thermal_via_drill_max, op: "<=", value: 0.33, unit: mm, note: "TI SLMA002：0.33 mm 及以下，1 oz 表面铜 + 孔壁电镀时效果好"}
+    - {name: thermal_via_drill_start, op: "==", value: 0.3, unit: mm, note: "TI SLUA271：起始值"}
+    - {name: thermal_via_pitch, op: range, value: [1.0, 1.2], unit: mm, note: "SLUA271 约 1.0 mm；AN-1520 仿真用 1.2 mm；AN-2020 用 1 mm"}
+    - {name: small_die_via_count, op: range, value: [5, 9], unit: pcs, note: "小芯片通常足够"}
+    - {name: theta_ja_penalty_0p2mm_via_small_pad, op: range, value: [15, 25], unit: "%", note: "最多 4 个过孔的小焊盘；大焊盘（≥ 9 个）一般 < 10%"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "统计每个裸露焊盘内的过孔数量、钻孔径、最近邻间距；孔径 ≤ 0.33 mm、间距在 1.0–1.2 mm，数量接近焊盘能容纳的最大值；孔径同时不低于板厂过孔下限"
+      automatable: full
+  sources:
+    - {title: "SLMA002 PowerPAD Thermally Enhanced Package", url: "https://www.ti.com/lit/an/slma002h/slma002h.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.4 Thermal Vias"}
+    - {title: "SLUA271 QFN and SON PCB Attachment", url: "https://www.ti.com/lit/an/slua271d/slua271d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.4.1"}
+    - {title: "AN-1520 A Guide to Board Layout for Best Thermal Resistance for Exposed Packages", url: "https://www.ti.com/lit/an/snva183b/snva183b.pdf", publisher: "Texas Instruments", kind: app_note, section: "§5.2, §6"}
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.2 Rule 2: Thermal Vias"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-RTE-003
+  title: 用过孔阵列的并联热阻核算而不是凭感觉
+  domain: thermal
+  stage: routing
+  severity: consider
+  rule: 过孔阵列的热阻按单孔热阻除以数量估算：12 mil（0.3 mm）孔、孔壁 0.5 oz 镀铜、板厚 1.6 mm 约 261 °C/W；孔壁镀到 1 oz 约 140 °C/W；8 mil 完全填铜约 128 °C/W。把该值纳入总热阻，并与热预算比较。
+  rationale: 单个过孔热阻很高，数量才是关键；4×4 共 16 个 12 mil 过孔约 16.3 °C/W，填孔可再降一半，但 PCB 成本可能增加到 2–3 倍，而 1 oz 孔壁镀铜只增加约 10–20%。
+  applies_to: [thermal-via, exposed-pad]
+  parameters:
+    - {name: via_theta_12mil_0p5oz, op: "==", value: 261, unit: "°C/W", note: "单孔，板厚 0.165 cm，孔壁 0.00175 cm"}
+    - {name: via_theta_12mil_1oz, op: "==", value: 140, unit: "°C/W", note: "单孔"}
+    - {name: via_theta_8mil_filled, op: "==", value: 128, unit: "°C/W", note: "单孔，镀满封闭"}
+    - {name: jlc_avg_hole_plating, op: "==", value: 18, unit: um, note: "JLC 公布的平均孔铜约等于 0.5 oz 镀铜，因此取 261 °C/W 作基准"}
+  verify:
+    - method: thermal_sim
+      tool: "Python：R_array = R_via / N，再与铜皮横向热阻串联"
+      check: "R_array ≤ 热预算中分给过孔的份额；需要时说明为什么不用更多过孔或更厚镀铜"
+      automatable: full
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.2, §3.2.1, Table 1"}
+    - {title: "JLCPCB PCB Capabilities", url: "https://jlcpcb.com/capabilities/pcb-capabilities", publisher: JLCPCB, kind: vendor_guide, section: "Drilling: Average hole plating"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-RTE-004
+  title: 散热过孔的封盖方式要避免焊料流失和空洞
+  domain: thermal
+  stage: routing
+  severity: should
+  rule: 散热焊盘上的过孔必须有明确的处理方式：从元件面用阻焊盖住（阻焊盘径 = 孔径 + 0.1 mm 以上），或者塞/填平；不要只从背面盖油，否则空洞增加；使用 OSP 表面处理时 TI 发现不盖油也能得到可重复的结果。把选择写进制造说明。
+  rationale: 开口过孔把焊料吸走，使焊盘处缺焊料而出现空洞；背面盖油会困住空气和助焊剂放气；二者都使有效焊接面积下降（见 THM-MFG-001）。
+  applies_to: [exposed-pad, thermal-via, qfn, powerpad]
+  parameters:
+    - {name: via_mask_cap_over_hole, op: ">=", value: 0.1, unit: mm, note: "盖油阻焊直径比孔径大的量（TI 两份文档均提到）"}
+  verify:
+    - method: review
+      tool: "制造说明 + JLC 下单页「过孔覆盖」选项"
+      check: "确认散热过孔的覆盖方式与 TI 建议一致；2 层板在 JLC 上若选「盖油」，Gerber 中阻焊层对该孔的盖油环 ≥ 孔径 + 0.1 mm"
+      automatable: manual
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "对散热焊盘内的过孔，检查其阻焊边距设置为（通过 tented 或负边距）不开窗，或者标记为 filled"
+      automatable: partial
+  sources:
+    - {title: "SLMA002 PowerPAD Thermally Enhanced Package", url: "https://www.ti.com/lit/an/slma002h/slma002h.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.4 Thermal Vias"}
+    - {title: "SLUA271 QFN and SON PCB Attachment", url: "https://www.ti.com/lit/an/slua271d/slua271d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.4.1, Figure 3-4"}
+    - {title: "Via Covering: Tented, Untented, Plugged, Epoxy-Filled and Copper-epoxy-filled", url: "https://jlcpcb.com/help/article/pcb-via-covering", publisher: JLCPCB, kind: vendor_guide}
+  confidence: high
+  conflicts: "TI 两份文档都偏好从元件面盖油；SLUA271 补充说 OSP 面不盖油也可重复。JLC 的 2 层板标准服务难以做焊盘内填平盖帽（见 DFM-RTE-002）。取舍：按所选表面处理和板厂能力选择，并用 X 光结果验证。"
+
+- id: THM-RTE-005
+  title: 散热过孔要实连到尽可能多的层，不用热焊盘
+  domain: thermal
+  stage: routing
+  severity: must
+  rule: 散热焊盘下的过孔与内层 / 底层地平面之间做完整环形连接，不使用热焊盘（花焊盘）；把过孔连到尽可能多的铜层，底层地要尽量完整；封装焊盘本身也要连到顶层的大面积地铜。
+  rationale: 热焊盘的目的是增加热阻以便焊接，用在散热路径上会显著抬高热阻；热量必须从过孔进入大面积铜才能铺开。
+  applies_to: [exposed-pad, thermal-via]
+  verify:
+    - method: drc
+      tool: "KiCad 自定义规则 zone_connection"
+      check: "散热焊盘及其内的过孔 zone_connection = solid，所连的每个铜层都有对应的铜皮覆盖"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "统计每个散热过孔连接的铜层数，要求 ≥ 2；检查底层 GND 铜皮在散热过孔下方连续"
+      automatable: partial
+  sources:
+    - {title: "SLMA002 PowerPAD Thermally Enhanced Package", url: "https://www.ti.com/lit/an/slma002h/slma002h.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.4"}
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.2"}
+    - {title: "AN-1520 A Guide to Board Layout for Best Thermal Resistance for Exposed Packages", url: "https://www.ti.com/lit/an/snva183b/snva183b.pdf", publisher: "Texas Instruments", kind: app_note, section: "§6, §7"}
+  confidence: high
+  conflicts: "与可焊接性冲突，见 DFM-PLN-002：热焊盘利于焊接，实连利于散热。散热路径上取实连。"
+
+# ───────────────────────── plane_pour ─────────────────────────
+- id: THM-PLN-001
+  title: SOT-223 的散热铜面积要按目标 θJA 来定
+  domain: thermal
+  stage: plane_pour
+  severity: should
+  rule: SOT-223（AMS1117 一类）按目标 θJA 给 tab 配铜：以 (Tj,max − Ta,max)/PD 反推所需 θJA，再查铜面积表；不要只靠封装自带的 16 mm² 焊盘：按 Richtek 的 135 °C/W、Tj,max = 125 °C、Ta,max = 70 °C 推算，它最多只能耗散约 0.4 W（由 Richtek 数值推出）。
+  rationale: 铜面积从 16 mm² 增加到 2500 mm²，θJA 可从 135 降到 50 °C/W（Richtek 数据）；TI 的 2 oz 测试里 0.0123–1 in² 使 RθJA 从约 110 降到 40 °C/W。
+  applies_to: [sot-223, ams1117, ldo, dpak]
+  parameters:
+    - {name: ams1117_theta_ja_2500_2500_2500, op: "==", value: 55, unit: "°C/W", note: "AMS1117 表 1：顶层 2500 mm² / 背面 2500 mm² / 板 2500 mm²，1/16 英寸 FR-4，1 oz"}
+    - {name: ams1117_theta_ja_1000_2500_2500, op: "==", value: 55, unit: "°C/W", note: "顶层 1000 mm²，背面 2500 mm²"}
+    - {name: ams1117_theta_ja_225_2500_2500, op: "==", value: 65, unit: "°C/W", note: "顶层 225 mm²，背面 2500 mm²"}
+    - {name: ams1117_theta_ja_100_2500_2500, op: "==", value: 80, unit: "°C/W", note: "顶层 100 mm²，背面 2500 mm²"}
+    - {name: ams1117_theta_ja_1000_1000_1000, op: "==", value: 60, unit: "°C/W", note: "顶层 1000 mm²，背面 1000 mm²，板 1000 mm²"}
+    - {name: ams1117_theta_ja_1000_0_1000, op: "==", value: 65, unit: "°C/W", note: "顶层 1000 mm²，背面 0"}
+    - {name: richtek_theta_ja_16mm2, op: "==", value: 135, unit: "°C/W", note: "标准焊盘 16 mm²，2 oz 板"}
+    - {name: richtek_theta_ja_100mm2, op: "==", value: 107, unit: "°C/W"}
+    - {name: richtek_theta_ja_2500mm2, op: "==", value: 50, unit: "°C/W"}
+    - {name: ti_sot223_pad_for_1p3w, op: ">=", value: 0.066, unit: "in2", note: "约 43 mm²，2 oz，约 1.3 W；TI 测试板 4.5 × 5 in"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python：统计与 tab 焊盘直接相连的铜面积（顶层 / 底层，经过孔相连的底层面积另计）"
+      check: "取表中与实际 (顶 / 底 / 板面积) 最接近且偏保守的一行的 θJA，代入 THM-ARC-003 的 PD 和 Tj 计算"
+      automatable: partial
+    - method: bench
+      tool: "热电偶 / 热像仪"
+      check: "在最大负载实测 tab 温度并与计算对比"
+      automatable: manual
+  sources:
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Thermal Considerations, Table 1"}
+    - {title: "Understanding Thermal Characteristic of SOT-223 Package (AN044)", url: "https://www.richtek.com/Design%20Support/Technical%20Document/AN044?sc_lang=en", publisher: Richtek, kind: app_note}
+    - {title: "AN-1028 Maximum Power Enhancement Techniques for Power Packages", url: "https://www.ti.com/lit/pdf/snva036", publisher: "Texas Instruments", kind: app_note, section: "§3 Result, Figure 3–4"}
+  confidence: high
+  conflicts: "三个来源的测试板不同（AMS：1/16 英寸 FR-4，1 oz；Richtek：表中标 2 oz；TI：4.5×5 in，2 oz），数值不能混用；AMS1117 表是粗略指南，数据手册自己说需要实验确定。"
+  tags: [cat-feeder]
+
+- id: THM-PLN-002
+  title: 散热铜优先放在元件面，再用过孔连到背面
+  domain: thermal
+  stage: plane_pour
+  severity: should
+  rule: 功率封装的散热铜皮优先放在元件面并与焊盘直接相连；要进一步降低热阻时，再用多个过孔把它连到背面铜皮；散热铜不一定要和器件的 tab 在电气上同网络。
+  rationale: TI 的 SOT-223 实验中，铜全部放在顶面比放在底面或两面各一半的 RθJA 低 10–15 °C/W；PCB 材料在铜层之间的 L/A 比很小，所以背面或内层的地平面也能有效传热。
+  applies_to: [sot-223, dpak, so-8, ldo, mosfet]
+  parameters:
+    - {name: top_side_copper_benefit, op: range, value: [10, 15], unit: "°C/W", note: "相比铜在底面或两面平分，同一面积"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "功率件焊盘在元件面直接连接的铜面积 ≥ 设计目标，并存在 ≥ 2 个连到背面铜的过孔"
+      automatable: partial
+  sources:
+    - {title: "AN-1028 Maximum Power Enhancement Techniques for Power Packages", url: "https://www.ti.com/lit/pdf/snva036", publisher: "Texas Instruments", kind: app_note, section: "§3 Result"}
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Thermal Considerations"}
+  confidence: high
+  tags: [cat-feeder]
+
+- id: THM-PLN-003
+  title: 别在散热铜皮上垂直于热流切口
+  domain: thermal
+  stage: plane_pour
+  severity: should
+  rule: 发热件周围的散热铜皮保持连续；不得不穿过铜皮的走线 / 缝隙尽量沿热量的辐射方向走，不要垂直于热流方向切断铜皮；封装旁的铜皮尽量向外延伸。
+  rationale: TI 的热像对比：垂直于热流的宽切口使同样功耗的板子温度高出 5.5 °C，平行于热流的切口只高 1.5 °C；把靠近封装的走线尽量延伸可使热阻再降约 10%（约 2 °C/W）。
+  applies_to: [power, zone, exposed-pad]
+  parameters:
+    - {name: perpendicular_cut_temp_rise, op: "==", value: 5.5, unit: "°C", note: "TI 实验：垂直切口"}
+    - {name: parallel_cut_temp_rise, op: "==", value: 1.5, unit: "°C", note: "TI 实验：平行切口"}
+  verify:
+    - method: geometry_script
+      tool: "pcbnew Python"
+      check: "以发热件焊盘为中心，统计半径 15 mm 内顶层 / 底层铜皮被走线或槽切断的弧长；切口方向与径向夹角 > 45° 的列出供评审"
+      automatable: partial
+    - method: bench
+      tool: "热像仪"
+      check: "对比有 / 无该切口的两版板温度分布"
+      automatable: manual
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.4 Rule 4: Avoid Breaks in the Thermal Path"}
+    - {title: "AN-1520 A Guide to Board Layout for Best Thermal Resistance for Exposed Packages", url: "https://www.ti.com/lit/an/snva183b/snva183b.pdf", publisher: "Texas Instruments", kind: app_note, section: "§5.2"}
+  confidence: high
+
+# ───────────────────────── manufacturing ─────────────────────────
+- id: THM-MFG-001
+  title: 裸露焊盘的焊接面积与空洞要有上限并用 X 光验证
+  domain: thermal
+  stage: manufacturing
+  severity: should
+  rule: 裸露焊盘的焊接面积不低于焊盘面积的 50%（标准工艺通常 > 80%）；大功率应用中空洞率不超过 50%（25% 以内收益递减）；JLC 对 BGA / QFN / LGA 自动做 X 光并出报告，要查看报告并关注集中在电流 / 受力区域的空洞。
+  rationale: 空洞等同于缺少焊接面积：AN-1520 仿真显示焊接覆盖率降到 50 / 20 / 10 / 5% 时 θJA 增大约 4 / 13 / 19 / 34%，10% 左右是拐点；覆盖率大于 50% 时变化不到 5%。
+  applies_to: [qfn, son, powerpad, exposed-pad]
+  parameters:
+    - {name: ep_solder_area_min, op: ">=", value: 50, unit: "%", note: "TI SLMA002：最小焊接面积；标准工艺通常 > 80%"}
+    - {name: ep_void_max_high_power, op: "<=", value: 50, unit: "%", note: "TI SLUA271 偏好的上限；JEDEC 高 K 板上 25% 为收益递减点"}
+    - {name: ep_void_diminishing_returns, op: "<=", value: 25, unit: "%"}
+    - {name: theta_ja_increase_at_50pct_coverage, op: "==", value: 4, unit: "%", note: "AN-1520 仿真，中心集中的焊接区域"}
+    - {name: theta_ja_increase_at_10pct_coverage, op: "==", value: 19, unit: "%"}
+  verify:
+    - method: bench
+      tool: "JLC X-Ray Report（订单历史 → 生产进度）或自有 X 光"
+      check: "散热焊盘的焊接面积 ≥ 50%，最好 ≥ 75%；单个大空洞（例如 > 25% 焊点面积）或集中在电流路径上的空洞要说明或返工"
+      automatable: manual
+    - method: thermal_sim
+      tool: "THM-ARC-002 计算"
+      check: "用 θJA 增加 4–19% 的悲观值重算 Tj，仍然满足限值"
+      automatable: full
+  sources:
+    - {title: "SLMA002 PowerPAD Thermally Enhanced Package", url: "https://www.ti.com/lit/an/slma002h/slma002h.pdf", publisher: "Texas Instruments", kind: app_note, section: "Assembly: solder joint inspection"}
+    - {title: "SLUA271 QFN and SON PCB Attachment", url: "https://www.ti.com/lit/an/slua271d/slua271d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§4.4 Exposed-Pad Stencil Design"}
+    - {title: "AN-1520 A Guide to Board Layout for Best Thermal Resistance for Exposed Packages", url: "https://www.ti.com/lit/an/snva183b/snva183b.pdf", publisher: "Texas Instruments", kind: app_note, section: "§5.2"}
+    - {title: "X-Ray Inspection Report Interpretation Guide", url: "https://jlcpcb.com/help/article/x-ray-inspection-report-interpretation-guide", publisher: JLCPCB, kind: vendor_guide}
+    - {title: "PCB Assembly Capabilities", url: "https://jlcpcb.com/capabilities/pcb-assembly-capabilities", publisher: JLCPCB, kind: vendor_guide, section: "Placement, Reflow, and Inspection (X-ray)"}
+  confidence: high
+  conflicts: "TI 两份文档的空洞要求不同：SLMA002 要求焊接面积 ≥ 50%，SLUA271 要求空洞 ≤ 50%（两者等价），并说在 JEDEC 高 K 板上 25% 为收益递减点。JLC X 光指南只用「大于 25%」举例，并没有给出按封装区分的合格判据。"
+
+# ───────────────────────── verification ─────────────────────────
+- id: THM-VER-001
+  title: 由外壳温度推结温用 ψJT，不用 θJC
+  domain: thermal
+  stage: verification
+  severity: should
+  rule: 想从实测的封装顶面中心温度推算结温时用 Tj = Tc + ψJT × P（塑封件的 ψJT 通常 0.5–2 °C/W），或由板温用 Tj = Tboard + ψJB × P；不要用 Tc + θJC × P，也不要用 θJA = θJC + θCA 的串联。
+  rationale: 塑封器件 60–95% 的热量经 PCB 散出而不是顶面，用 θJC（典型 4–15 °C/W）会高估结温；ψJT 是在与实际应用相近的热流分配下测的，更接近真实。
+  applies_to: [plastic-package, all-ics]
+  parameters:
+    - {name: psi_jt_plastic_typical, op: range, value: [0.5, 2], unit: "°C/W"}
+    - {name: theta_jc_plastic_typical, op: range, value: [4, 15], unit: "°C/W"}
+    - {name: heat_via_pcb_fraction, op: range, value: [60, 95], unit: "%", note: "ψJB 文中为 75–95%"}
+  verify:
+    - method: bench
+      tool: "热电偶 / 热像仪 + 数据手册 ψJT / ψJB"
+      check: "测顶面中心温度 Tc，Tj = Tc + ψJT × P；与 THM-ARC-002 的计算结果对比"
+      automatable: manual
+  sources:
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§2.2, §3, §5"}
+  confidence: high
+
+- id: THM-VER-002
+  title: 测外壳温度的方法要避免热电偶散热误差
+  domain: thermal
+  stage: verification
+  severity: should
+  rule: 用热电偶测封装顶面温度时，用 36–40 号细线（J 或 K 型），位置在封装表面中心（±1 mm），热导环氧小珠 ≤ 2 × 2 mm，线沿封装对角线走到 PCB 并在板面上贴行至少 25 mm 再抬起，不用胶带直接贴；热像仪必须按表面发射率修正；红外测温枪视场最大约 4 mm 且不适合测 ψJB。
+  rationale: 粗线热电偶会把被测点「吸冷」，使环境到表面的温差少测 50% 以上，错误范围 5–50%；发射率未修正的红外读数也不可信。
+  applies_to: [thermal-measurement]
+  parameters:
+    - {name: thermocouple_gauge_max_thickness, op: ">=", value: 36, unit: AWG, note: "36 号或更细（数字更大更细）"}
+    - {name: epoxy_bead_max, op: "<=", value: 2, unit: mm, note: "2 × 2 mm 以内"}
+    - {name: wire_dress_length_on_pcb, op: ">=", value: 25, unit: mm}
+    - {name: center_placement_tolerance, op: "<=", value: 1, unit: mm}
+  verify:
+    - method: bench
+      tool: "细线热电偶 + 热像仪"
+      check: "测量方法记录满足上述要求；热像仪读数用已知温度的参考点（如热电偶测值）校准发射率"
+      automatable: manual
+  sources:
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§3.1 Case Temperature Measurement; §5.1"}
+  confidence: high
+
+- id: THM-VER-003
+  title: MOSFET 结温可用体二极管压降法做电学测量
+  domain: thermal
+  stage: verification
+  severity: consider
+  rule: 需要验证 MOSFET 实际结温时，可用体二极管压降法：先标定二极管压降随温度的斜率 K（功率 MOSFET 约 2.2 mV/°C），再在功率脉冲结束后约 30 µs 测量体二极管压降（小电流，TI 用 10 mA），由压降变化换算结温。
+  rationale: 结点温度无法直接用热电偶测量；体二极管压降是半导体结自身的温度传感器，是 JEDEC/MIL 方法的基础。
+  applies_to: [mosfet, ao3400a]
+  parameters:
+    - {name: body_diode_k_factor, op: "==", value: 2.2, unit: "mV/°C", note: "TI 称大多数功率 MOSFET 约此值；应逐器件标定"}
+    - {name: diode_sense_current, op: "==", value: 10, unit: mA, note: "TI 测试用"}
+    - {name: measure_delay_after_pulse, op: "==", value: 30, unit: us}
+  verify:
+    - method: bench
+      tool: "可编程电源 + 示波器/数字万用表 + 恒温箱"
+      check: "标定 K；加功率脉冲后在 30 µs 内读体二极管压降；ΔVSD / K 得到 ΔTj"
+      automatable: manual
+  sources:
+    - {title: "AN-1028 Maximum Power Enhancement Techniques for Power Packages", url: "https://www.ti.com/lit/pdf/snva036", publisher: "Texas Instruments", kind: app_note, section: "Appendix B Thermal Measurement"}
+  confidence: medium
+  tags: [cat-feeder]
+
+- id: THM-VER-004
+  title: 在最坏工况、盖好外壳后做稳态热测试
+  domain: thermal
+  stage: verification
+  severity: should
+  rule: 热验证在最高环境温度（可用恒温箱或加热）、最高输入电压、最大负载（Wi-Fi 峰值 / 电机堵转）、外壳盖好的稳态下进行；记录环境温度的测点位置，并给出每个发热件的实测温度与计算结温的对照。
+  rationale: 热相互作用和外壳影响很难纯靠计算得到，AMS1117 数据手册也说明需要实验确定；环境温度测点不同会得到不同的「环境温度」，必须统一。
+  applies_to: [thermal-verification, enclosure]
+  verify:
+    - method: bench
+      tool: "热电偶多通道记录仪 + 热像仪"
+      check: "稳态（温度变化 < 1 °C / 10 min）后记录发热件温度、局部空气温度；所有器件按 THM-VER-001 换算的 Tj ≤ Tj,max − 余量"
+      automatable: manual
+  sources:
+    - {title: "AMS1117 datasheet", url: "https://www.handsontec.com/dataspecs/AMS1117.pdf", publisher: "Advanced Monolithic Systems", kind: datasheet, section: "Thermal Considerations"}
+    - {title: "SPRA953 Semiconductor and IC Package Thermal Metrics", url: "https://www.ti.com/lit/an/spra953d/spra953d.pdf", publisher: "Texas Instruments", kind: app_note, section: "§7 Ambient Air Temperature"}
+  confidence: medium
+  conflicts: "稳态判据（温度变化 < 1 °C / 10 min）是本库的实用建议，不是来源规定的数值。"
+  tags: [cat-feeder]
+
+- id: THM-VER-005
+  title: 先用热阻网络手算，再决定是否做 FEM
+  domain: thermal
+  stage: verification
+  severity: consider
+  rule: 布局前后都用热阻网络做第一遍估算：把 1 cm 方块的铜横向热阻、FR-4 垂直热阻、过孔热阻和表面对流热阻搭成网络，估算 θCA 和板温；余量不足或几何复杂时再用 FEM。
+  rationale: 电阻网络计算快，足以决定板面积、是否需要气流或散热器；TI 推荐先用该模型，再用有限元做细化。
+  applies_to: [thermal-sim]
+  parameters:
+    - {name: theta_cu_1cm_square_1oz, op: "==", value: 71.4, unit: "°C/W", note: "1 cm × 1 cm，1 oz 铜横向，λ = 4 W/(cm·°C)"}
+    - {name: theta_sa_1cm_square_natural, op: "==", value: 1000, unit: "°C/W", note: "1 cm² 板面到环境，自然对流 h = 0.001 W/(cm²·°C)"}
+    - {name: theta_fr4_1cm_square, op: "==", value: 13.9, unit: "°C/W", note: "1 cm² FR-4 厚 0.032 cm 垂直方向"}
+    - {name: theta_via_12mil, op: "==", value: 261, unit: "°C/W", note: "同 THM-RTE-003"}
+  verify:
+    - method: thermal_sim
+      tool: "Python 脚本搭建热阻网络（节点 = 1 cm 方块）"
+      check: "输出每个发热件的 θJA,effective 与 Tj；与 THM-ARC-002 要求比较，并与实测 THM-VER-004 校准系数"
+      automatable: partial
+  sources:
+    - {title: "AN-2020 Thermal Design By Insight, Not Hindsight", url: "https://www.ti.com/lit/an/snva419c/snva419c.pdf", publisher: "Texas Instruments", kind: app_note, section: "§1, §2, Table 1"}
+  confidence: high
+  tags: [cat-feeder]

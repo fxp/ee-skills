@@ -1,0 +1,174 @@
+# Catalog rule id -> function in geometry.py. ``params`` entries resolve to thresholds:
+#   "param_name"                        catalog parameters[].name of the rule itself
+#   {param, op?, scale?}                same, with an op override (e.g. the catalog's '==' read as a floor) or a multiplier
+#   {rule: ID, param: name}             a parameter of another catalog rule
+#   {design: key}                       project_thresholds[key] in design/<board>.yaml (catalog says "project-set / empirical")
+#   {text, op, value, unit}             a threshold that only exists in the rule / verify.check prose (no number in parameters[])
+# ``flags`` pass fixed switches to the function.
+
+DFM-FLR-006:
+  fn: smd_pad_edge_distance
+  params:
+    pad: component_pad_to_board_edge
+    fiducial: fiducial_clearance_to_board_edge
+    fiducial_zone_diameter: {rule: DFM-PLC-003, param: fiducial_copper_free_diameter}
+
+DFM-PLC-003:
+  fn: fiducials
+  params:
+    count: fiducial_count_min
+    diameter: fiducial_copper_diameter
+    opening: fiducial_mask_opening_diameter
+    free: fiducial_copper_free_diameter
+    edge: fiducial_edge_clearance
+
+DFM-MFG-009:
+  fn: test_points
+  params:
+    signal: tp_pad_diameter_signal_min
+    power: tp_pad_diameter_power_min
+    pitch: tp_center_pitch_min
+    body: tp_to_component_body
+    edge: tp_to_board_edge
+
+DFM-RTE-002:
+  fn: via_in_smd_pad
+  params:
+    zero: {text: "no via centre inside an SMD pad (heat-sink pads exempt) -- catalog verify.check: hits fail", op: "==", value: 0, unit: count}
+
+DFM-LIB-002:
+  fn: two_terminal_symmetry
+  params:
+    tol: {text: "pad size / centre difference > 0.01 mm is an error -- catalog verify.check", op: "<=", value: 0.01, unit: mm}
+
+GEN-FLR-007:
+  fn: copper_edge_distance
+  params:
+    limit: copper_to_routed_edge
+
+GEN-RTE-006:
+  fn: supply_trace_widths
+  params:
+    main: main_3v3_trace_width
+    pin: vdd3p3_trace_width
+    other: other_power_trace_width
+
+PWR-RTE-008:
+  fn: supply_trace_widths
+  params:
+    main: main_3v3_trace_width_min
+    pin: vdd3p3_trace_width_min
+    other: {param: other_power_trace_width, op: ">="}      # catalog writes '== 10 mil' ("other power traces: 10 mil"); read as a floor
+
+GEN-RTE-015:
+  fn: fast_net_length
+  params:
+    limit: fast_trace_max_length
+
+EMC-RTE-005:
+  fn: fast_net_length
+  params:
+    limit: trace_length_fm_band_concern                    # catalog op is '>' (alarm above 101.6 mm): the function negates it
+  flags: {negate: true}
+
+EMC-PLC-001:
+  fn: esd_entry
+  params:
+    ratio: tvs_to_ic_distance_vs_tvs_to_connector
+
+EMC-RTE-003:
+  fn: esd_entry
+  params:
+    vias: vias_between_connector_and_tvs
+    stub: tvs_stub_length
+    corner: tvs_path_corner_angle
+
+GEN-PLC-009:
+  fn: esd_entry
+  params:
+    d1: {design: tvs_to_connector_mm}
+    far_ratio: {design: tvs_far_side_ratio}
+
+GEN-PLC-002:
+  fn: decap_proximity
+  params:
+    distance: {design: decap_to_pin_mm}
+    ratio: decap_loop_trace_length_to_width
+
+EMC-PLC-003:
+  fn: decap_proximity
+  params:
+    distance: {design: decap_to_pin_mm}
+    ratio: decoupling_trace_length_to_width
+
+ANA-PLC-002:
+  fn: decap_proximity
+  params:
+    cap_value: bypass_capacitance
+    distance: {design: decap_to_pin_mm}
+    no_via: {text: "no via on the capacitor-to-pin path -- catalog rule text 'no vias between them'", op: "==", value: 0, unit: count}
+  flags: {ics: [U3]}          # the rule is about the current-sense amplifier's V+ pin only
+
+GEN-PLN-009:
+  fn: antenna_keepout
+  params:
+    zero: {text: "number of tracks / vias / pads / pour / parts intersecting the keep-out == 0 -- catalog verify.check", op: "==", value: 0, unit: count}
+
+RF-FLR-002:
+  fn: antenna_keepout
+  params:
+    zero: {text: "number of tracks / vias / pads / pour / parts intersecting the keep-out == 0 -- catalog verify.check", op: "==", value: 0, unit: count}
+
+GEN-PLN-007:
+  fn: zone_orphans
+  params:
+    zero: {text: "fill islands without a same-net pad / via / track == 0 -- catalog verify.check", op: "==", value: 0, unit: count}
+
+GEN-PLN-004:
+  fn: ground_fill_connections
+  params:
+    points: ground_fill_connection_points
+    min_area: {design: gnd_region_min_area_mm2}
+
+EMC-PLN-001:
+  fn: ground_fill_connections
+  params:
+    points: ground_fill_connection_points
+    min_area: {design: gnd_region_min_area_mm2}
+
+GEN-RTE-002:
+  fn: return_path
+  params:
+    zero: {text: "segments whose midpoint is not over GND copper on the reference layer == 0 -- catalog verify.check", op: "==", value: 0, unit: count}
+  flags: {mode: midpoint}
+
+EMC-RTE-001:
+  fn: return_path
+  params:
+    coverage: {text: "fast nets: 100 % of 0.5 mm samples over GND copper -- catalog verify.check ('快速网络目标 100% 覆盖')", op: ">=", value: 100, unit: "%"}
+  flags: {mode: fast}
+
+PWR-RTE-005:
+  fn: trace_current_width
+  params:
+    per_amp: width_per_amp_1oz_an1149
+
+GEN-STK-007:
+  fn: trace_current_width
+  params:
+    k: ipc2221_k_external
+
+PWR-RTE-007:
+  fn: shunt_kelvin
+  params:
+    mismatch: {design: sense_length_mismatch_pct}
+
+ANA-RTE-001:
+  fn: shunt_kelvin
+  params: {}
+
+GEN-PLC-005:
+  fn: entry_bulk_capacitor
+  params:
+    value: entry_bulk_capacitor
+    distance: {design: entry_bulk_cap_distance_mm}

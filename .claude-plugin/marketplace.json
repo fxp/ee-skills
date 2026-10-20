@@ -1,0 +1,15 @@
+{
+  "name": "ee-skills",
+  "owner": { "name": "fxp", "url": "https://github.com/fxp" },
+  "metadata": { "description": "Skills for electronics / PCB design review and verification" },
+  "plugins": [
+    {
+      "name": "ee-skills",
+      "source": "./",
+      "description": "14 skills: design review, KiCad verification harness, catalog maintenance, and 11 domain skills (general PCB, power, low-power, RF, audio, precision analog, high-speed, EMC/ESD, HV safety, thermal, DFM).",
+      "version": "0.1.0",
+      "license": "MIT",
+      "category": "engineering"
+    }
+  ]
+}

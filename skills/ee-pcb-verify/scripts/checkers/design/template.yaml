@@ -1,0 +1,77 @@
+# Board facts the geometry checks need that are NOT in the .kicad_pcb: which nets are power / fast / protected, which
+# pins get decoupled, where the antenna keep-out is. Copy this file, edit every value for YOUR board, and pass it with
+# `run.py --design my_board.yaml`. Anything a rule needs that is missing here makes that rule report status=error
+# ("design file missing role"), never a silent pass.
+#
+# Coordinates are KiCad board mm (the same numbers pcbnew shows). Reference designators and pad numbers below are
+# placeholders from a small ESP32-C3 + motor + current-sense board (github.com/fxp/cat-feeder); replace them.
+# Every entry should say where its number comes from (datasheet, your own spec) so a result can be audited.
+board: my_board
+
+nets:
+  ground: [GND]
+  power: ["VIN", "+5V", "+3V3"]               # supply rails
+  power_other_than_3v3: ["+5V", "VIN"]        # for rules that talk about "other power traces" next to the main 3V3 supply
+  fast: [GATE, SCK, TXD, RXD]                 # edge sources: PWM gate, clocks, UART ... (nets that radiate / need a return path)
+
+# Rated currents used by the trace-width rules (A). Use the real limit of the source (fuse hold current, driver limit).
+currents_a:
+  VIN: 1.1
+  "+5V": 1.1
+copper_oz: 1                                  # finished copper weight of the outer layers
+design_temp_rise_c: 10                        # allowed temperature rise for the trace-width rules
+
+fiducial_distance_tolerance_mm: 0.1           # numerical tolerance for "pairwise fiducial distances differ"
+
+# Antenna keep-out of an RF module: board-mm rectangle [x0, y0, x1, y1] where no copper, parts or holes may sit.
+# The catalog deliberately gives no dimensions ("use the module datasheet"), so the rectangle is yours.
+antenna_keepout:
+  rect_mm: [0.0, 0.0, 66.0, 14.0]
+  exempt_refs: [U1]                           # the module's own antenna pads / courtyard
+
+# IC supply pins that need a decoupling capacitor, and the supply path checked for width.
+decoupling:
+  cap_value_f: 1.0e-7                         # the capacitor value that counts as the local bypass (100 nF)
+  pins:
+    - {ic: U1, pin: "1", net: "+3V3", role: "module 3V3"}
+    - {ic: U3, pin: "3", net: "+3V3", role: "current-sense amplifier V+"}
+supply_paths:
+  main_3v3: {net: "+3V3", from: [U2, "2"], to: [U1, "1"]}     # regulator output pad -> load pad
+
+# ESD entry paths: connector pad -> TVS signal pad -> protected IC pin.
+esd:
+  - {net: TXD, connector: [J2, "2"], tvs: [D5, "1"], ic: [U1, "12"]}
+  - {net: RXD, connector: [J2, "3"], tvs: [D5, "2"], ic: [U1, "11"]}
+
+# 4-terminal (Kelvin) shunt: which pads force the current and which sense the voltage, and which amplifier pins read it.
+shunt:
+  ref: R10
+  sense_pos: "2"
+  sense_neg: "4"
+  force_pos: "1"
+  amp: U3
+  amp_pos: "4"
+  amp_neg: "5"
+  net_pos: CS_P
+  net_neg: CS_N
+  power_pad: [Q1, "2"]                        # the power-stage pad that feeds the shunt on the net_pos side
+
+power_entry:
+  connector_pad: [J1, "1"]
+  nets: [VIN, "+5V"]
+  bulk_min_f: 10.0e-6                         # minimum bulk capacitance at the entry (10 uF)
+
+# Thresholds the catalog hands to the project ("项目设定值 / 经验阈值" in verify.check). Each says where the number comes from.
+project_thresholds:
+  decap_to_pin_mm:
+    {op: "<=", value: 3.0, unit: mm, source: "GEN-PLC-002 / ANA-PLC-002 verify.check: 建议 <= 3 mm (empirical)"}
+  sense_length_mismatch_pct:
+    {op: "<", value: 20.0, unit: "%", source: "PWR-RTE-007 verify.check: 两线长度差小于 20% (起始阈值，来源未给)"}
+  entry_bulk_cap_distance_mm:
+    {op: "<=", value: 10.0, unit: mm, source: "GEN-PLC-005 verify.check: 建议 <= 10 mm (empirical)"}
+  tvs_to_connector_mm:
+    {op: "<=", value: 5.0, unit: mm, source: "GEN-PLC-009 verify.check: d1 <= 5 mm (empirical)"}
+  tvs_far_side_ratio:
+    {op: ">=", value: 3.0, unit: ratio, source: "GEN-PLC-009 verify.check: d2 >= 3 x d1 (empirical)"}
+  gnd_region_min_area_mm2:
+    {op: ">=", value: 1.0, unit: mm2, source: "GEN-PLN-004 verify.check: 'area larger than a project-set value'; 1 mm2 chosen, ignores slivers"}

@@ -1,0 +1,2151 @@
+# general / process stages: architecture, library, schematic, netlist, verification
+# 来源核对说明见各条 sources；KLC（KiCad Library Conventions）站点对抓取返回 403，相关条目 confidence 取 medium。
+
+# =====================================================================================================
+# architecture (ARC)
+# =====================================================================================================
+- id: GEN-ARC-001
+  title: 需求逐条分配到设计元素并指定验证方法
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    画原理图之前，把每条需求（功能、电气、机械、环境）编号，并在需求矩阵里写明：来源、分配到的设计元素
+    （模块 / 器件 / 网络组）、验证方法（测试、分析、检查、演示之一）和通过判据。没有分配对象或没有验证方法的需求视为未完成。
+  rationale: >-
+    需求不落到具体元件上，就无法判断某个元件为什么存在、删掉会破坏什么；没有验证方法的需求无法在签核时关闭。
+    验证方法分为 test / analysis / inspection / demonstration 四类，是系统工程里通行的分法。
+  verify:
+    - method: review
+      tool: "需求矩阵（requirements.yaml 或表格）+ 自写校验脚本"
+      check: >-
+        脚本逐条检查：每个需求 ID 的 allocated_to、verify_method、acceptance 非空；allocated_to 引用的位号或功能块在
+        网表 / 原理图页名里真实存在；verify_method 属于 {test, analysis, inspection, demonstration}。
+        人工评审再确认判据是否可测。
+      automatable: partial
+  sources:
+    - title: "NASA Systems Engineering Handbook (NASA/SP-2016-6105 Rev 2), 验证 / 确认方法与附录中的需求验证矩阵示例"
+      url: "https://explorers.larc.nasa.gov/2023ESE/pdf_files/NASA04.%20SysEng%20Handbook%20(NASA_SP-2016-6105%20Rev%202).pdf"
+      publisher: "NASA"
+      kind: textbook
+      section: "Verification / Appendix D（需求验证矩阵样例；章节号未逐页核对）"
+    - title: "ISO/IEC/IEEE 29148:2011 Requirements engineering（需求可追溯性）"
+      publisher: "ISO/IEC/IEEE"
+      kind: standard
+      ref: "ISO/IEC/IEEE 29148:2011，traceability 相关条款"
+  confidence: medium
+  applies_to: [requirements, system]
+
+- id: GEN-ARC-002
+  title: 按产品等级对元件电压 / 电流 / 功率降额
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    在选型阶段确定降额策略（每类元件的最大应力 / 额定值），并对每个元件用实际最坏工作点的电压、电流、功耗和结温核对。
+    NASA 的通用参考值见 parameters；商用产品可以放宽，但放宽要有记录并给出理由。
+  rationale: >-
+    元件失效率随电应力、热应力降低而下降；把应力限制在额定值的一个固定比例以内，可以免去逐件做可靠性建模，
+    同时给容差、浪涌和老化留出余量。
+  parameters:
+    - {name: capacitor_voltage_stress_max, op: "<=", value: 0.6, unit: "额定电压的比例", note: "NASA GSFC PD-ED-1201 Table 1：电容"}
+    - {name: resistor_power_stress_max, op: "<=", value: 0.6, unit: "额定功率的比例", note: "NASA PD-ED-1201：电阻"}
+    - {name: semiconductor_power_stress_max, op: "<=", value: 0.5, unit: "额定功率的比例", note: "NASA PD-ED-1201：分立半导体"}
+    - {name: semiconductor_voltage_stress_max, op: "<=", value: 0.75, unit: "额定电压的比例", note: "NASA PD-ED-1201：分立半导体"}
+    - {name: semiconductor_junction_temp_max, op: "<=", value: 110, unit: "degC", note: "NASA PD-ED-1201：分立半导体"}
+    - {name: microcircuit_supply_voltage_stress_max, op: "<=", value: 0.8, unit: "额定电压的比例", note: "NASA PD-ED-1201：集成电路电源电压"}
+    - {name: microcircuit_power_stress_max, op: "<=", value: 0.75, unit: "额定功率的比例", note: "NASA PD-ED-1201：集成电路"}
+    - {name: microcircuit_junction_temp_max, op: "<=", value: 100, unit: "degC", note: "NASA PD-ED-1201：集成电路"}
+    - {name: inductive_device_voltage_stress_max, op: "<=", value: 0.5, unit: "额定电压的比例", note: "NASA PD-ED-1201：电感类器件"}
+    - {name: relay_connector_current_stress_max, op: "<=", value: 0.5, unit: "额定电流的比例", note: "NASA PD-ED-1201：继电器与连接器"}
+    - {name: inductor_saturation_current_derating, op: range, value: [30, 40], unit: "%", note: "TI SLYP673 幻灯片给出的经验值：Isat 降额 30-40%"}
+  verify:
+    - method: bom_check
+      tool: "BOM + 工作点表的校验脚本"
+      check: >-
+        对每个元件取仿真 .op / .tran 的最大电压、电流、功耗（或手算），除以数据手册额定值（功率按环境温度折算后的额定值），
+        得到应力比；与策略表逐项比较，超限项列出。结温用 Tj = Tamb + P x theta_JA 估算后与 Tj_max 比较。
+      automatable: partial
+    - method: bench
+      tool: "热像仪 / 电流探头 / 示波器"
+      check: "最坏负载（电机堵转、Wi-Fi 发射、输入电压上限）下测元件壳温与电压峰值，换算应力比并与策略比较。"
+      automatable: manual
+  sources:
+    - title: "PD-ED-1201 EEE Parts Derating (Preferred Reliability Practices)"
+      url: "https://extapps.ksc.nasa.gov/Reliability/Documents/Preferred_Practices/1201.pdf"
+      publisher: "NASA GSFC"
+      kind: standard
+      section: "Table 1 Typical Part Derating Guidelines"
+    - title: "How to avoid design problems by using worst case analysis calculations (SLYP673)"
+      url: "https://www.ti.com/lit/pdf/slyp673"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "inductance rolloff example 幻灯片"
+  confidence: high
+  conflicts: >-
+    NASA 表是飞行项目策略，商用板常取更宽的比例；行业博客给出的数字各不相同（陶瓷电容 50-60%、钽 50% 甚至 30%、
+    铝电解 80% 等，未核对到原始标准）；ECSS-Q-ST-30-11C 按器件族另有更细的表格（未逐条核对）。
+    取舍：把 NASA 表当作可复现的上限基线，产品等级更低时在项目的降额策略文件里明确写出放宽后的数值，不在单个器件上临时放宽。
+  applies_to: [resistor, capacitor, mosfet, ic, inductor, connector]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-003
+  title: 陶瓷电容按直流偏压后的有效容值取值
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    对用于稳压器稳定性、保持时间、滤波或定时的 Class II（X5R / X7R / Y5V）MLCC，以工作偏压、温度和公差下的有效容值参与计算，
+    而不是标称值；需要容值稳定的位置优先用 C0G，或加大额定电压 / 封装。
+  rationale: >-
+    高介电常数 MLCC 的容值随直流偏压下降，Murata 的例子是 6.3 V 100 uF 的 X5R 在 1.8 V 偏压下掉约 10%，Y5V 约掉 40%；
+    同样标称、同样尺寸的不同厂商料偏压曲线差别很大，二次供货时尤其要重新核对。
+  parameters:
+    - {name: murata_example_x5r_loss_at_1v8, op: "==", value: 10, unit: "%", note: "Murata 示例：6.3 V 100 uF X5R 在 1.8 V 直流偏压下的容值下降；仅作量级参考，具体以料号曲线为准"}
+    - {name: murata_example_y5v_loss_at_1v8, op: "==", value: 40, unit: "%", note: "同上，Y5V"}
+    - {name: x7r_tolerance_bol, op: "==", value: 10, unit: "%", note: "TI SLYP673 示例里 X7R 的初始容差；EOL 21%，温度 15%（示例值，EOL 数据应取自厂商）"}
+  verify:
+    - method: bom_check
+      tool: "厂商偏压曲线工具（Murata SimSurfing、TDK 等）+ 脚本"
+      check: >-
+        对每个关键 MLCC 取工作偏压下的有效容值，乘以温度与公差余量后，与数据手册要求的最小容值（如 LDO 输出电容）比较，
+        不足则换料、加并联或换更大额定电压。
+      automatable: partial
+    - method: bench
+      tool: "LCR 表（带直流偏置）"
+      check: "按 Murata 建议，在实际供电线路的直流电压下测电容，对比计算值。"
+      automatable: manual
+  sources:
+    - title: "The voltage characteristics of electrostatic capacitance"
+      url: "https://article.murata.com/en-global/article/voltage-characteristics-of-electrostatic-capacitance"
+      publisher: "Murata"
+      kind: vendor_guide
+    - title: "How to avoid design problems by using worst case analysis calculations (SLYP673)"
+      url: "https://www.ti.com/lit/pdf/slyp673"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "Capacitor Tolerances 幻灯片"
+    - title: "pcb-checklist: schematic checklist（Decoupling: Derate ceramic capacitors for their C/V curve）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: high
+  applies_to: [mlcc, ldo, decoupling, filter]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-004
+  title: 选型时核对生命周期并为关键件备好替代料
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    冻结 BOM 之前，确认每个料处于量产状态（不是 NRND / EOL / 停产），所选渠道有足够库存；对关键件（MCU 或模块、稳压器、功率开关、
+    模拟前端）至少登记一个引脚和封装兼容的替代料，必要时让封装能兼容替代料。同一料号有多家制造商时，分别核对各家数据手册。
+  rationale: >-
+    停产或缺货会把一次选型问题变成改板；不同厂商的同名料数据手册要求可能不同（例如稳压器输出电容要求），
+    所以替代料不能只看型号相同。生命周期管理有专门的标准框架（IEC 62402）。
+  verify:
+    - method: bom_check
+      tool: "分销商 API（LCSC / JLC 零件库 / Octopart）+ 脚本"
+      check: >-
+        对 BOM 每行查询生命周期状态和库存，状态不是 Active、库存低于一次订单数量的行输出告警；
+        关键件的 AVL（合格供应商列表）里替代料字段为空则失败。
+      automatable: partial
+    - method: review
+      tool: "评审清单"
+      check: "逐个关键件，把原料与替代料的数据手册并排比较（电气参数、稳定性条件、引脚、封装），记录结论。"
+      automatable: manual
+  sources:
+    - title: "Schematic Design Review Checklist（BOM and part checks：active production、库存、一个值一个料号）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+    - title: "IEC 62402 Obsolescence management"
+      publisher: "IEC"
+      kind: standard
+      ref: "IEC 62402（淘汰管理框架；未取得正文，仅据二手资料引用）"
+  confidence: medium
+  conflicts: >-
+    同一型号的二供料数据手册可能不一致。例如 AMS1117 在 UMW 的数据手册里要求 22 uF 钽电容作输出电容以保证稳定性，
+    其他厂商版本可能给出不同值（未核对）；因此二供替换必须以实际下单料号的数据手册为准。
+  applies_to: [bom, mcu, ldo, mosfet]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-005
+  title: 封装与器件选择要匹配贴片厂的库和工艺
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    选型时只用目标贴片厂有料、能贴装的封装；无源件优先用贴片厂的基础库（Basic）料，尽量减少不同料号的扩展库（Extended）料种数；
+    BOM 每一行必须能匹配到厂方料号（LCSC Part #）。
+  rationale: >-
+    JLC 对每个不同的扩展库料收一次上料费，BOM 里匹配不到库的料不会被贴装；在选型阶段处理比在下单前改封装代价小得多。
+  parameters:
+    - {name: extended_part_loading_fee, op: "==", value: 3, unit: "USD/料种", note: "JLCPCB PCB Assembly FAQ：每个扩展库料种；Preferred Extended 在 Economic 组装免该费。费用以官网当前页面为准"}
+  verify:
+    - method: bom_check
+      tool: "kicad-cli sch export bom + JLC/LCSC 零件库查询脚本"
+      check: >-
+        BOM 每个非 DNP 行都必须有 LCSC Part #（格式 Cxxxx）且能在库中匹配；统计 Basic / Preferred / Extended 数量，
+        匹配不到的行为失败；输出唯一扩展库料种数及对应费用。
+      automatable: full
+  sources:
+    - title: "PCB Assembly FAQs"
+      url: "https://jlcpcb.com/help/article/pcb-assembly-faqs"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+      section: "Basic vs. Extended components"
+    - title: "How to generate BOM and Pick and Place file in Sprint-Layout 6（LCSC Part # 写入 Comment，格式 Cxxxx）"
+      url: "https://jlcpcb.com/help/article/how-to-generate-bom-and-pick-and-place-file-in-sprint-layout-6"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+  confidence: high
+  applies_to: [smt, bom]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-006
+  title: MCU / 模块选型前做引脚预算并剔除受限引脚
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    选 MCU 或模块之前，列出全部需要的外设、信号和 ADC 通道，映射到具体引脚形成引脚分配表；把不能自由使用的引脚（strapping、
+    flash / PSRAM 占用、USB、调试口、上电毛刺、受限的 ADC 通道）标出并排除；给调试口和测试点留出空闲引脚；读器件勘误表。
+  rationale: >-
+    引脚总数不等于可用 GPIO。ESP32-C3 的 GPIO2 / 8 / 9 是 strapping 引脚，部分引脚上电有毛刺，ADC2 在部分版本上不可用；
+    在布局之后才发现引脚冲突，只能改板或牺牲功能。
+  parameters:
+    - {name: esp32c3_strapping_pins, op: qualitative, value: null, note: "GPIO2、GPIO8、GPIO9（数据手册 Table 3-1）"}
+    - {name: esp32c3_power_up_low_glitch_duration, op: "==", value: 5, unit: ns, note: "MTCK、MTDO、GPIO10、U0RXD 上电低电平毛刺（数据手册 Table 2-2）"}
+    - {name: esp32c3_gpio18_power_up_high_glitch_duration, op: "==", value: 50000, unit: ns, note: "GPIO18 上电高电平毛刺约 50 us（数据手册 Table 2-2）"}
+  verify:
+    - method: review
+      tool: "引脚分配表（YAML / CSV）+ 自写校验脚本"
+      check: >-
+        脚本读取分配表和器件受限引脚清单（strapping、flash、USB、JTAG、毛刺引脚），任何功能落在受限引脚上必须有书面豁免；
+        再与 kicad-cli 导出的网表比对，保证表中引脚和原理图一致。
+      automatable: partial
+  sources:
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "Table 2-1 Pin Overview、Table 2-2 Power-Up Glitches on Pins、Table 3-1"
+    - title: "Schematic Checklist - ESP32-C3（GPIO、ADC 两节）"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+  confidence: high
+  applies_to: [mcu, module, esp32]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-007
+  title: 按电源轨做功耗预算并计入峰值电流
+  domain: general
+  stage: architecture
+  severity: must
+  rule: >-
+    为每条电源轨建表：列出各负载的典型电流和峰值电流（如射频发射脉冲、电机启动），求和后加余量，与稳压器限流、输入源能力、
+    保险丝 / PPTC 保持电流和连接器额定值比较；线性稳压器还要算耗散 (Vin - Vout) x Iout 和结温。
+  rationale: >-
+    平均电流很小的无线 MCU 板，峰值电流可能是平均值的几十倍；电源只按平均值选就会在射频发射时掉压重启。
+    线性稳压器把压差全部转成热，结温超限会进入热关断。
+  parameters:
+    - {name: supply_output_current_min, op: ">=", value: 500, unit: mA, note: "Espressif 对 ESP32-C3 单电源 3.3 V 方案的要求（原理图检查表 Power Supply）"}
+    - {name: esp32c3_wifi_tx_peak_current, op: "==", value: 335, unit: mA, note: "数据手册 v2.4 Table 5-7，802.11b 1 Mbps @21 dBm，100% 占空比，3.3 V，25 degC"}
+  verify:
+    - method: bom_check
+      tool: "电源预算表 + 脚本"
+      check: >-
+        每条轨：sum(Ipeak_i) x (1 + 余量比例) <= 稳压器额定输出且 <= 输入源能力；线性稳压器 P = (Vin_max - Vout) x Iout，
+        Tj = Tamb_max + P x theta_JA 必须小于 Tj_max（PD(max) = (TJmax - Tamb)/theta_JA）。余量比例由项目策略给定。
+      automatable: full
+    - method: bench
+      tool: "功耗仪 / 示波器 + 电流探头"
+      check: "抓取联网、发射和电机启动时刻的输入电流波形，峰值不得超过预算表，电源轨最低电压不得低于器件最小工作电压。"
+      automatable: manual
+  sources:
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply"
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "5.6 Current Consumption, Table 5-7"
+    - title: "AMS1117 datasheet (UMW)，最大允许功耗公式"
+      url: "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/5011/AMS1117.pdf"
+      publisher: "UMW"
+      kind: datasheet
+      section: "Absolute maximum ratings 脚注 1"
+    - title: "pcb-checklist: schematic checklist（Power）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: high
+  applies_to: [power_tree, ldo, wireless_mcu]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-008
+  title: 先定上电时序与复位释放条件
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    在架构阶段写明各电源轨的上电 / 掉电顺序和复位释放条件，并满足器件手册的时序（ESP32-C3 的具体数值见 GEN-SCH-007 与 GEN-SCH-006）；
+    轨电压上升慢或不稳（电池充电、光伏等）时加电源监控器。
+    多电压器件之间若存在反向供电或闩锁风险，要么限定先后顺序，要么用器件手册给出的钳位办法。
+  rationale: >-
+    一条轨有电、另一条轨还没起来时，芯片内部隔离结构可能正偏产生电流，严重时触发闩锁。
+    复位在电源稳定之前释放，芯片会带着未定义的内部状态启动。
+  parameters:
+    - {name: esp32c3_power_monitor_threshold, op: "==", value: 3.0, unit: V, note: "Espressif 建议的监控器阈值，约 3.0 V，用于慢速 / 不稳定供电"}
+  verify:
+    - method: spice
+      tool: "ngspice / LTspice（电源斜坡 + 复位 RC 的瞬态仿真）"
+      check: >-
+        用实际电源上升时间（最慢和最快各一个）仿真：CHIP_EN 越过 0.75 x VDD 的时刻必须晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us；
+        掉电再上电的最短间隔下 EN 也必须被拉低至少 50 us。
+      automatable: partial
+    - method: bench
+      tool: "示波器（多通道）"
+      check: "同时抓取 5 V、3V3、EN、strapping 引脚，确认顺序和时间间隔满足上述参数，覆盖冷启动、热复位和欠压恢复。"
+      automatable: manual
+  sources:
+    - title: "Power Supply Sequencing Solutions for Dual Supply Voltage DSPs (SLVA073A)"
+      url: "https://www.ti.com/lit/an/slva073a/slva073a.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "1.1 Core and I/O Sequencing Requirements"
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "2.5.3 Chip Power-up and Reset, Table 2-11, Table 3-2"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Chip Power-up and Reset"
+  confidence: high
+  applies_to: [mcu, multi_rail, supervisor]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-009
+  title: 核对每条数字链路的电平兼容与过压
+  domain: general
+  stage: architecture
+  severity: must
+  rule: >-
+    对每条数字链路（含模块、传感器小板、外部连接器），在最坏电源电压下核对 VOH(min) >= VIH(min)、VOL(max) <= VIL(max)，
+    并确认驱动端高电平不会超过接收端的最大输入电压（VDD + 0.3 V 或绝对最大值）。模块用 5 V 供电时其输出可能是 5 V 电平，需要电平转换或改用 3.3 V 供电。
+  rationale: >-
+    阈值不满足时通信时好时坏，输入超压会通过 ESD 钳位二极管灌电流，累积损伤 IO。模块板上的电平由模块自己的供电轨决定，容易被忽视。
+  parameters:
+    - {name: esp32c3_vih_min, op: ">=", value: 0.75, unit: "x VDD", note: "数据手册 Table 5-4：高电平输入阈值下限"}
+    - {name: esp32c3_vil_max, op: "<=", value: 0.25, unit: "x VDD", note: "Table 5-4：低电平输入阈值上限"}
+    - {name: esp32c3_voh_min, op: ">=", value: 0.8, unit: "x VDD", note: "Table 5-4：输出高电平下限"}
+    - {name: esp32c3_vol_max, op: "<=", value: 0.1, unit: "x VDD", note: "Table 5-4：输出低电平上限"}
+    - {name: esp32c3_vih_abs_max_over_vdd, op: "<=", value: 0.3, unit: V, note: "输入电压上限为 VDD + 0.3 V（Table 5-4 的 VIH 最大值）"}
+    - {name: i2c_vih_min, op: ">=", value: 0.7, unit: "x VCC", note: "TI SLVA689A 的 I2C 阈值定义；VIL 最大 0.3 x VCC"}
+  verify:
+    - method: review
+      tool: "链路表（驱动端器件 / 电源轨 / VOH,VOL，接收端器件 / 电源轨 / VIH,VIL）+ 网表脚本"
+      check: >-
+        脚本从网表取每条信号网络的驱动端与接收端，按各器件所在电源轨的最小 / 最大电压代入阈值公式，
+        VOH_min >= VIH_min、VOL_max <= VIL_max 且 V_drive_max <= V_receiver_max_input，任一不满足即失败。
+      automatable: partial
+    - method: bench
+      tool: "示波器"
+      check: "在最低和最高电源电压下抓信号电平，高电平 >= VIH_min 加余量，不得超过接收端最大输入电压。"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "Table 5-4 DC Characteristics (3.3 V, 25 degC)"
+    - title: "I2C Bus Pullup Resistor Calculation (SLVA689A)"
+      url: "https://www.ti.com/lit/pdf/slva689"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "2 Pullup Resistor Calculation"
+  confidence: high
+  applies_to: [digital_io, sensor_module, level_shift]
+  tags: [cat-feeder]
+
+- id: GEN-ARC-010
+  title: 连接器按触点数与温度折算电流并防插错
+  domain: general
+  stage: architecture
+  severity: should
+  rule: >-
+    选连接器时，用厂家的降额曲线按同时通电的触点数和最高环境温度折算每触点电流；没有曲线时按额定电流的 50% 使用；
+    同时选带防呆（极性定位）的型号，并核对线缆是直连还是镜像接线。
+  rationale: >-
+    连接器发热正比于 I^2R，电流翻倍发热变成四倍；多触点同时通电会互相加热，每触点可用电流比单触点额定值小。
+    环境温度升高时接触电阻上升，温升更大。线缆接反在原型阶段很常见。
+  parameters:
+    - {name: connector_current_stress_max, op: "<=", value: 0.5, unit: "额定电流的比例", note: "NASA PD-ED-1201：继电器与连接器；无降额曲线时的保守默认"}
+    - {name: samtec_per_contact_fraction_50pct_energized, op: "==", value: 0.75, unit: "单触点额定电流的比例", note: "Samtec 博客的经验值：50% 触点通电；仅 Samtec 系列，具体以所选系列曲线为准"}
+    - {name: samtec_per_contact_fraction_100pct_energized, op: "==", value: 0.6, unit: "单触点额定电流的比例", note: "同上，100% 触点通电"}
+    - {name: connector_temp_rise_max, op: "<=", value: 30, unit: K, note: "Wurth 为 UL1059 取的最大温升，各厂商 / 标准取值不同"}
+  verify:
+    - method: bom_check
+      tool: "电源预算表 + 连接器降额数据"
+      check: >-
+        每个电源连接器：I_per_contact = I_rail_peak / 并联触点数，必须 <= 曲线给出的 (额定电流 x 通电触点折算系数) 在最高环境温度下的值；
+        曲线缺失时 I_per_contact <= 0.5 x 额定。
+      automatable: partial
+    - method: bench
+      tool: "热电偶 / 热像仪"
+      check: "在最坏电流下测连接器温升，与厂家规定的最大温升（如 30 K）比较。"
+      automatable: manual
+    - method: review
+      tool: "接口表"
+      check: "逐个连接器核对引脚定义、是否防呆、对端线缆是直连还是镜像。"
+      automatable: manual
+  sources:
+    - title: "Derating of Connectors (ANE006a)"
+      url: "https://www.digikey.com/Site/Global/Layouts/DownloadPdf.ashx?pdfUrl=4032FAAF37CF46A1A3088C1458463D5C"
+      publisher: "Wurth Elektronik"
+      kind: app_note
+      section: "2.1 Temperature rise theory, 3.1 Derating"
+    - title: "Connector Voltage and Power Rating 101"
+      url: "https://blog.samtec.com/post/connector-voltage-and-power-rating-101/"
+      publisher: "Samtec"
+      kind: vendor_guide
+    - title: "PD-ED-1201 EEE Parts Derating"
+      url: "https://extapps.ksc.nasa.gov/Reliability/Documents/Preferred_Practices/1201.pdf"
+      publisher: "NASA GSFC"
+      kind: standard
+      section: "Table 1"
+    - title: "pcb-checklist: schematic checklist（Verify pinout of cables to other boards）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: medium
+  conflicts: >-
+    NASA 的 50% 是通用上限，Samtec 的触点折算系数和 Wurth 的温升判据是连接器系列相关的方法，数值不能互相替代。
+    取舍：有厂商降额曲线时用曲线，没有曲线时用 50% 作为保守默认。
+  applies_to: [connector, power_input, motor_output]
+  tags: [cat-feeder]
+
+# =====================================================================================================
+# library (LIB)
+# =====================================================================================================
+- id: GEN-LIB-001
+  title: 符号的引脚号、名称和电气类型逐脚对照数据手册
+  domain: general
+  stage: library
+  severity: must
+  rule: >-
+    新建或引入的每个符号，在首次使用前把每个引脚的编号、名称和电气类型（输入 / 输出 / 电源输入 / 无连接）逐脚对照数据手册或厂商引脚表核对，
+    即使符号来自可信库或你以前用过。电源输入脚不得隐藏，不接的脚设为 Not Connected 并隐藏。
+  rationale: >-
+    库错误能通过所有 ERC 和 DRC，直到板子回来才暴露。ERC 的判断依赖符号里正确的电气类型，
+    类型填错会让它漏报或误报；隐藏的电源脚会产生看不见的隐式连接。
+  verify:
+    - method: review
+      tool: "两人互查 + 自写脚本（符号引脚表 vs 数据手册引脚表 CSV）"
+      check: >-
+        脚本解析 .kicad_sym 中每个 pin 的 number、name、electrical type，与从数据手册提取的引脚表逐行比对，
+        数量、编号、名称不一致即失败；另检查 power_in 类型的脚没有 hide 属性。
+        数据手册引脚表需由第二人确认提取无误。
+      automatable: partial
+    - method: erc
+      tool: "KiCad Symbol Editor 的符号检查器 + ERC"
+      check: "符号检查器对该符号无错误；原理图 ERC 在 pin_to_pin、pin_not_driven 类别上无异常。"
+      automatable: full
+  sources:
+    - title: "Schematic Design Review Checklist"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+      section: "Pin verification"
+    - title: "pcb-checklist: schematic checklist"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+      section: "Datasheet verification"
+    - title: "KiCad 10 Schematic Editor manual（pin electrical types、symbol checker、ERC）"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Electrical rules checking / Symbol editor"
+    - title: "KLC S4.1 General pin requirements / S4.6 Hidden pins"
+      url: "https://klc.kicad.org/symbol/s4/s4.6/"
+      publisher: "KiCad"
+      kind: tool_doc
+  confidence: high
+  applies_to: [symbol, ic, module, connector]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-002
+  title: 焊盘图形取自厂商推荐或 IPC-7351 并1:1核对
+  domain: general
+  stage: library
+  severity: must
+  rule: >-
+    封装焊盘优先采用器件厂商数据手册里的推荐焊盘图形；没有时用 IPC-7351 的生成规则，回流焊量产取 Nominal（N）密度等级，
+    手工焊 / 原型取 Most（M），高密度取 Least（L），并把等级写进封装名或描述。新封装必须与数据手册机械图的尺寸做 1:1 对照。
+  rationale: >-
+    焊盘尺寸决定焊点形态（趾部、跟部、侧向焊脚）与桥连风险。TI 对 0.5 mm 间距的 QFN 要求焊盘宽度缩到 0.28 mm 以下以免桥连，
+    说明通用规则不能代替具体封装的推荐值。
+  parameters:
+    - {name: ipc7351_default_density_level, op: qualitative, value: null, note: "回流焊量产用 Nominal（N）；M 为手工焊 / 原型，L 为高密度"}
+    - {name: qfn_pad_width_0p5mm_pitch, op: "<=", value: 0.28, unit: mm, note: "TI SLUA271：0.5 mm 间距 QFN/SON 避免桥连的焊盘宽度，以具体器件手册为准"}
+  verify:
+    - method: geometry_script
+      tool: "解析 .kicad_mod 的 Python 脚本"
+      check: >-
+        从数据手册推荐焊盘图形整理成 YAML（焊盘中心坐标、尺寸），脚本逐焊盘比对 .kicad_mod，
+        中心偏差和尺寸偏差都不得超过项目设定的容差（建议 0.05 mm，属项目选择）；焊盘数不一致即失败。
+      automatable: partial
+    - method: review
+      tool: "1:1 打印纸样 / STEP 叠图"
+      check: "把封装按 1:1 打印，放上实物器件，或把 STEP 模型叠在焊盘上，确认引脚落在焊盘中并留有焊脚空间。"
+      automatable: manual
+  sources:
+    - title: "QFN and SON PCB Attachment (SLUA271C)"
+      url: "https://www.ti.com/lit/slua271"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "3.1 Land Pad Styles, 3.2 Land Pad Design, 3.3 Lead Finger Pad PCB Design"
+    - title: "PCB Land Pattern Design — IPC-7351B 密度等级与命名"
+      url: "https://www.atlaspcb.com/blog/pcb-land-pattern-design-ipc-7351b-footprint-standards/"
+      publisher: "AtlasPCB"
+      kind: blog
+    - title: "IPC-7351B Generic Requirements for Surface Mount Design and Land Pattern Standard"
+      publisher: "IPC"
+      kind: standard
+      ref: "IPC-7351B（付费标准，未取得正文）"
+  confidence: medium
+  applies_to: [footprint, smd, qfn]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-003
+  title: 每个封装画闭合的 courtyard 并满足外扩量
+  domain: general
+  stage: library
+  severity: should
+  rule: >-
+    每个封装在 F.CrtYd（需要时 B.CrtYd）画闭合的 courtyard，外扩量不小于项目规定值：KLC 默认 0.25 mm，部件任一边小于 1.5 mm 时 0.15 mm，
+    连接器、罐形电容、晶体 0.5 mm，BGA 1.0 mm；线宽 0.05 mm，坐标落在 0.01 mm 网格上。
+  rationale: >-
+    courtyard 是贴片机吸嘴、返修和装配公差需要的最小净空，DRC 靠它检查相邻元件是否重叠。
+    没有 courtyard 的封装等于不参与间距检查。
+  parameters:
+    - {name: courtyard_clearance_default, op: ">=", value: 0.25, unit: mm, note: "KLC F5.3 默认；IPC-7351 的 Nominal 等级同为 0.25 mm"}
+    - {name: courtyard_clearance_small_part, op: ">=", value: 0.15, unit: mm, note: "KLC F5.3：部件小于 1.5 mm 时"}
+    - {name: courtyard_clearance_connector_canned_cap_crystal, op: ">=", value: 0.5, unit: mm, note: "KLC F5.3；连接器另需加上插拔所需空间"}
+    - {name: courtyard_clearance_bga, op: ">=", value: 1.0, unit: mm, note: "KLC F5.3；含 WLCSP 等"}
+    - {name: courtyard_line_width, op: "==", value: 0.05, unit: mm, note: "KLC F5.3"}
+    - {name: courtyard_grid, op: "==", value: 0.01, unit: mm, note: "KLC F5.3"}
+    - {name: ipc7351_courtyard_excess_most_nominal_least, op: range, value: [0.1, 0.5], unit: mm, note: "IPC-7351B 按密度等级：Most 0.5、Nominal 0.25、Least 0.1（每边）"}
+  verify:
+    - method: drc
+      tool: "KiCad DRC（kicad-cli pcb drc --severity-all）"
+      check: "DRC 不得有 courtyard 重叠违规；重叠被 DRC 作为违规报告，不要在 DRC 设置里把该项设为忽略。"
+      automatable: full
+    - method: geometry_script
+      tool: "解析 .kicad_mod 的脚本"
+      check: >-
+        对每个封装，计算焊盘与 F.Fab 本体外框的包络，courtyard 外框到包络的最小距离必须 >= 对应分类的外扩量；
+        缺少 F.CrtYd 图形的封装直接失败。
+      automatable: full
+  sources:
+    - title: "KLC F5.3 Courtyard layer requirements"
+      url: "https://klc.kicad.org/footprint/f5/f5.3.html"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "KiCad 10 PCB Editor manual（Footprint properties：courtyard 重叠产生 DRC 违规）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Footprint properties"
+    - title: "PCB Land Pattern Design — IPC-7351B"
+      url: "https://www.atlaspcb.com/blog/pcb-land-pattern-design-ipc-7351b-footprint-standards/"
+      publisher: "AtlasPCB"
+      kind: blog
+  confidence: medium
+  conflicts: >-
+    IPC 体系内数值不统一：PCB Libraries 论坛转引的 IPC-7352 表按焊盘边 / 本体边分列（SMD：焊盘边 0.50 / 0.25 / 0.20 mm，本体边 1.00 / 0.50 / 0.25 mm），
+    同一帖子里另一位用户说 IPC-7352 只给每个等级一个值；该厂商自己的偏好又是 0.10 / 0.20 / 0.40 mm；
+    各来源对 A/B/C 与 M/N/L 的对应也不一致。取舍：以 KiCad KLC 的 0.25 mm 默认值作为可复现基线，
+    项目有更紧凑的需求时在项目策略里明确放宽并让贴片厂确认。
+  applies_to: [footprint, courtyard]
+
+- id: GEN-LIB-004
+  title: 带散热焊盘的封装补全焊盘编号、过孔与钢网开窗
+  domain: general
+  stage: library
+  severity: should
+  rule: >-
+    带裸露焊盘 / 散热片的封装（QFN、SON、SOT-223 的散热片、模块底部地焊盘）在符号里有对应编号的引脚，在封装里有同编号的焊盘，
+    尺寸与器件裸露焊盘一致；散热过孔与焊盘同编号；锡膏开窗做成约 50-70% 覆盖的分块，而不是 1:1 全开。
+  rationale: >-
+    裸露焊盘既是散热路径也是机械固定。1:1 开窗焊料体积过大会让器件浮起造成开路；过孔会吸走焊料，需要控制孔径和是否塞孔。
+    焊盘编号缺失会让这块铜在网表里没有网络，ERC 和 DRC 都不报。
+  parameters:
+    - {name: thermal_pad_pcb_size_vs_package, op: "==", value: 1, unit: "x 器件裸露焊盘", note: "SLUA271 3.4：PCB 散热焊盘尺寸与器件裸露焊盘相等"}
+    - {name: thermal_pad_to_lead_pad_clearance_min, op: ">=", value: 0.2, unit: mm, note: "SLUA271 3.4：防桥连的最小间隙，对多数设计足够"}
+    - {name: thermal_via_pitch, op: "==", value: 1.0, unit: mm, note: "SLUA271 3.4.1：热要求高时过孔间距约 1.0 mm"}
+    - {name: thermal_via_drill_start, op: "==", value: 0.3, unit: mm, note: "SLUA271：起始孔径；更小孔径焊料流失风险更小。KLC F4.4 给 0.2-0.3 mm"}
+    - {name: exposed_pad_paste_coverage, op: range, value: [50, 70], unit: "%", note: "SLUA271C 4.4：锡膏覆盖约为焊盘面积的 50-70%"}
+    - {name: thermal_pad_voiding_max, op: "<=", value: 50, unit: "%", note: "SLUA271C 4.4：大功率应用回流后空洞率，需 X 光确认"}
+    - {name: klc_back_copper_pad_margin_min, op: ">=", value: 0.5, unit: mm, note: "KLC F4.4：热过孔连到背面铜焊盘时，背面焊盘需包住过孔并留的边距"}
+  verify:
+    - method: geometry_script
+      tool: "解析 .kicad_mod 与 .kicad_sym 的脚本"
+      check: >-
+        对含裸露焊盘的器件：符号中存在对应编号的引脚（如 EP / 末位编号）；封装中该编号的焊盘尺寸与数据手册一致；
+        锡膏层开口总面积 / 铜焊盘面积 在 [0.5, 0.7]；过孔孔径 0.2-0.3 mm 且与焊盘同编号。
+      automatable: partial
+    - method: bench
+      tool: "X 光"
+      check: "首件回流后拍散热焊盘，空洞面积占比 <= 50%（大功率应用）。"
+      automatable: manual
+  sources:
+    - title: "QFN and SON PCB Attachment (SLUA271C)"
+      url: "https://www.ti.com/lit/slua271"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "3.4 Exposed Pad PCB Design, 3.4.1 Thermal Pad Via Design, 4.4 Exposed-Pad Stencil Design"
+    - title: "KLC F4.4 Thermal pads"
+      url: "https://klc.kicad.org/footprint/f4/f4.4.html"
+      publisher: "KiCad"
+      kind: tool_doc
+  confidence: high
+  conflicts: >-
+    SLUA271 早期版本（2002）写锡膏覆盖约 50%，2023 修订版写 50-70%；其他厂商的 QFN 指南可能给出不同的覆盖范围。
+    取舍：按所用器件的厂商指南为准，没有时用 TI 最新修订版的 50-70%，并以首件 X 光结果修正。
+  applies_to: [qfn, son, sot223, module_gnd_pad]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-005
+  title: 自动核对符号引脚与封装焊盘一致
+  domain: general
+  stage: library
+  severity: must
+  rule: >-
+    对每个库器件自动检查：符号的每个引脚号都能在所选封装里找到同号焊盘（刻意省略的 NC 脚除外），封装里每个有电气意义的焊盘号都对应一个符号引脚；
+    重复焊盘号只允许出现在刻意的多焊盘连接（散热焊盘、并联大电流焊盘）。
+  rationale: >-
+    符号与封装由不同人在不同时间做，引脚号错位是最常见的库缺陷。KiCad 的相关 DRC 项默认只是警告或被忽略，
+    只看 DRC 的 error 数会漏掉。
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist --format kicadsexpr + 解析 .kicad_mod"
+      check: >-
+        遍历网表中每个 (位号, 引脚号)，在对应封装文件里查同号焊盘；再反向查封装里未被引用的焊盘号。
+        两个方向的差集都必须为空，或在白名单（NC、散热焊盘）内。
+      automatable: full
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations"
+      check: >-
+        报告中不得出现 Pad net doesn't match schematic（默认 Warning）、Footprint doesn't match symbol's footprint filters（默认 Ignore，
+        需手动打开）、Footprint component type doesn't match footprint pads（默认 Ignore，需手动打开）。
+      automatable: full
+  sources:
+    - title: "KiCad 10 PCB Editor manual — List of DRC checks（Schematic parity 表）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Design rules checking / Schematic parity"
+  confidence: high
+  applies_to: [symbol, footprint]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-006
+  title: 3D 模型对准焊盘并核对与贴片厂的旋转约定
+  domain: general
+  stage: library
+  severity: should
+  rule: >-
+    每个非虚拟封装引用一个 STEP 3D 模型，偏移 (0,0,0)、缩放 1、旋转 0，模型已在三维软件中对准封装；
+    下单前在贴片厂的贴装预览里逐个核对 1 脚方向和极性，需要时在封装或 CPL 里记录旋转偏移。
+  rationale: >-
+    KiCad 封装的 0 度方向和贴片厂器件库的约定不一定相同，旋转错误不会触发 DRC，只会造成整批元件贴反。
+    模型偏移不为零说明模型和焊盘实际不对齐，3D 干涉检查结果也不可信。
+  parameters:
+    - {name: model_offset_xyz, op: "==", value: 0, unit: mm, note: "KLC M2.2 / F9.3：模型偏移必须为 (0,0,0)"}
+    - {name: model_scale, op: "==", value: 1, unit: "倍", note: "KLC：缩放 1:1:1，STEP 自带绝对尺寸"}
+    - {name: model_rotation, op: "==", value: 0, unit: deg, note: "KLC：旋转 0"}
+  verify:
+    - method: geometry_script
+      tool: "解析 .kicad_mod 的 model 块的脚本；kicad-cli pcb export glb/pos"
+      check: >-
+        所有非虚拟封装都有 model 引用；offset、scale、rotate 均为零 / 1；导出位置文件后，对每个封装检查模型包络中心与焊盘包络中心的偏差。
+      automatable: partial
+    - method: review
+      tool: "贴片厂订单预览（JLCPCB 贴装预览）"
+      check: "逐个有极性或 1 脚的器件（IC、二极管、LED、钽电容、连接器）核对预览里的朝向，不一致则调整 CPL 的 Rotation 后重新上传。"
+      automatable: manual
+  sources:
+    - title: "KLC F9.3 Footprint 3D model requirements"
+      url: "https://klc.kicad.org/footprint/f9/f9.3/"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "KLC M2.2 Model alignment and scaling"
+      url: "https://klc.kicad.org/model/m2/m2.2.html"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "How to generate BOM and Pick and Place file in Sprint-Layout 6（预览中发现朝向错误，修改 CPL 的 Rotation）"
+      url: "https://jlcpcb.com/help/article/how-to-generate-bom-and-pick-and-place-file-in-sprint-layout-6"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+  confidence: medium
+  applies_to: [footprint, 3d_model, smt_assembly]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-007
+  title: 库只有一个来源：项目内库表且纳入版本控制
+  domain: general
+  stage: library
+  severity: should
+  rule: >-
+    进入板子的符号和封装只来自项目目录内、受版本控制的库，库表用 ${KIPRJMOD} 相对路径引用；不依赖个人全局库表。
+    同一个料号和封装只允许有一份权威定义，改库后必须把改动更新到原理图副本和 PCB 并重新跑 ERC / DRC。
+  rationale: >-
+    KiCad 的原理图里放的是符号的副本，改库不会自动更新副本；项目库表优先于全局库表，
+    换一台机器或换一个人打开可能得到不同的符号或封装，导致输出文件不可复现。
+  verify:
+    - method: erc
+      tool: "自写脚本 + kicad-cli sch erc"
+      check: >-
+        解析项目 sym-lib-table 与 fp-lib-table：每个条目的 URI 必须在项目目录内（${KIPRJMOD} 展开后）且文件已被 git 跟踪；
+        ERC 中 lib_symbol_mismatch、lib_symbol_issues、footprint_link_issues 必须为 0。
+      automatable: full
+    - method: drc
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all"
+      check: "不得出现 Footprint doesn't match copy in library、Footprint not found in libraries（二者默认都只是 Warning）。"
+      automatable: full
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Symbol library tables"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Symbols and Symbol Libraries"
+    - title: "KiCad 10 PCB Editor manual — DRC 杂项检查（Footprint doesn't match copy in library）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "List of DRC checks"
+    - title: "Version control for KiCad projects（提交项目本地库与库表）"
+      url: "https://boardrepo.com/guides/kicad-version-control"
+      publisher: "BoardRepo"
+      kind: blog
+  confidence: high
+  applies_to: [library, version_control]
+  tags: [cat-feeder]
+
+- id: GEN-LIB-008
+  title: 库器件携带制造商、型号、数据手册和厂方料号
+  domain: general
+  stage: library
+  severity: should
+  rule: >-
+    每个库器件填写制造商、制造商型号（MPN）、数据手册链接、贴片厂料号（LCSC Part #，格式 Cxxxx）和封装字段；
+    同一个值加同一封装只保留一个料号。BOM 导出包含这些字段，字段为空的非 DNP 行视为未完成。
+  rationale: >-
+    贴片厂按料号匹配 BOM，匹配不到的行不会被贴装；字段缺失还会让生命周期核查和二次采购无法自动化。
+  verify:
+    - method: bom_check
+      tool: "kicad-cli sch export bom --fields Reference,Value,Footprint,${QUANTITY},${DNP},MPN,LCSC"
+      check: "导出 CSV 后脚本检查：非 DNP 行的 MPN、LCSC、Datasheet 非空；LCSC 匹配 ^C[0-9]+$；同 (Value, Footprint) 只对应一个 LCSC 号。"
+      automatable: full
+  sources:
+    - title: "Schematic Design Review Checklist（每个符号指定制造商和料号；一个值一个料号）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+      section: "BOM and part checks"
+    - title: "PCB Assembly FAQs"
+      url: "https://jlcpcb.com/help/article/pcb-assembly-faqs"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+    - title: "KiCad Command-Line Interface — sch export bom"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+  confidence: high
+  applies_to: [library, bom]
+  tags: [cat-feeder]
+
+# =====================================================================================================
+# schematic (SCH)
+# =====================================================================================================
+- id: GEN-SCH-001
+  title: 按功能块组织原理图，页间只用层次标签连接
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    把原理图分成带标题的功能块（电源输入、每个连接器及其保护、MCU、每个传感器 / 执行器），信号从左到右、电源在上、地在下；
+    元件多时拆成层次化多页，页间连接只用层次标签（hierarchical label）与图纸引脚；单页内用网络标签代替长连线。
+  rationale: >-
+    评审者靠功能块定位问题；跨页用全局标签乱连会让信号走向无法追踪。层次标签和图纸引脚名不一致时 KiCad 会报错，
+    便于发现漏接。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations"
+      check: "hier_label_mismatch、duplicate_sheet_names（均为默认 Error）和 label_dangling 必须为 0。"
+      automatable: full
+    - method: review
+      tool: "评审清单"
+      check: "每页有标题和功能块边框；每个子页的接口在父页可见；没有为省事而用全局标签跨页的信号（电源轨除外）。"
+      automatable: manual
+  sources:
+    - title: "Creating high quality electronics schematics"
+      url: "https://blog.poly.nomial.co.uk/2025-08-10-creating-high-quality-electronics-schematics.html"
+      publisher: "Graham Sutherland"
+      kind: blog
+      section: "Hierarchy and sheet organisation"
+    - title: "KiCad 10 Schematic Editor manual — Labels"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Labels / hierarchical sheets"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: medium
+  applies_to: [schematic, multi_sheet]
+
+- id: GEN-SCH-002
+  title: 电源轨用统一的电源符号并规范命名
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    每条电源轨使用唯一的电源符号名；名字里体现电压，用 V 代替小数点（3V3、1V8），大小写固定；电源符号朝上、地符号朝下；
+    不要对电源网络使用信号标签，也不要让同一条轨出现两种写法。
+  rationale: >-
+    KiCad 把仅大小写不同的标签当成不同网络，两种写法的电源轨会悄悄断开；网络只能有一个名字，同网络上出现两个不同标签时只保留一个。
+    名字里带小数点还可能被部分工具拒绝。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations"
+      check: "similar_power、similar_labels、similar_label_and_power、multiple_net_names、same_local_global_label 全部为 0（默认 Warning）。"
+      automatable: full
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist 后用正则检查网络名"
+      check: "电源轨网络名匹配 ^[+]?[0-9]+V[0-9]*$|^(VIN|VBUS|VBAT|GND)$ 等项目白名单，含小数点或非白名单的电源轨名失败。"
+      automatable: full
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Net name assignment / Labels"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+    - title: "Creating high quality electronics schematics"
+      url: "https://blog.poly.nomial.co.uk/2025-08-10-creating-high-quality-electronics-schematics.html"
+      publisher: "Graham Sutherland"
+      kind: blog
+      section: "Net labels and naming / Power symbols"
+  confidence: medium
+  applies_to: [schematic, power_rail]
+
+- id: GEN-SCH-003
+  title: 每个电源引脚（对）都画出规定值的去耦电容
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    每个 IC 电源脚（或相邻的电源 / 地脚对）在原理图中都有数据手册规定值的去耦电容，靠近该 IC 符号并写明容值、介质和耐压；
+    模拟电源脚（AVCC / VDDA / AREF）单独去耦；每个电源轨的入口有大电容；连接器上的电源脚也有去耦。
+  rationale: >-
+    数字电路在时钟沿上以纳秒级脉冲取电，脉冲电流靠去耦电容就近供给；电容遗漏或值不对，到布局阶段无法弥补。
+    原理图里写清每个电容服务哪个引脚，布局时才能按引脚就近放置。
+  parameters:
+    - {name: esp32c3_vdd3p3_cpu_decoupling, op: "==", value: 0.1, unit: uF, note: "Espressif：VDD3P3_CPU 靠近引脚 0.1 uF"}
+    - {name: esp32c3_vdd3p3_bulk, op: ">=", value: 10, unit: uF, note: "Espressif：VDD3P3 轨 10 uF 外加 0.1 uF；主电源入口至少 10 uF 加 ESD 二极管"}
+    - {name: esp32c3_vdd_spi_decoupling, op: "==", value: 1, unit: uF, note: "Espressif：VDD_SPI 向外部器件供 3.3 V 时靠近引脚 1 uF"}
+    - {name: mcu_analog_supply_decoupling_typ, op: "==", value: 100, unit: nF, note: "Microchip AN2519：AVCC / AREF 的典型去耦值"}
+    - {name: tantalum_voltage_rating_margin, op: ">=", value: 20, unit: "%", note: "Altium 检查表：钽电容额定电压至少比最大预期电压高 20%"}
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist --format kicadsexpr"
+      check: >-
+        对每个 IC 的每个电源脚 / 引脚对：该脚所在网络上存在电容，且其另一端接地网络；容值与 IC 的去耦要求表（YAML）一致；
+        电源网络上电容的数量 >= IC 电源引脚对数。
+      automatable: partial
+    - method: review
+      tool: "评审清单"
+      check: "对照数据手册 Power Supply / Decoupling 章节逐脚核对，模拟电源、参考电压脚、连接器电源脚是否遗漏。"
+      automatable: manual
+  sources:
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply"
+    - title: "AN2519 AVR Microcontroller Hardware Design Considerations"
+      url: "https://ww1.microchip.com/downloads/en/Appnotes/AN2519-AVR-Microcontroller-Hardware-Design-Considerations-00002519B.pdf"
+      publisher: "Microchip"
+      kind: app_note
+      section: "2.1 Digital Supply, 2.2 Analog Supply"
+    - title: "Schematic Design Review Checklist"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+      section: "Power / Decoupling"
+  confidence: high
+  conflicts: >-
+    Microchip 要求多电源脚器件的每对电源 / 地脚都要有去耦电容；Sutherland 的文章认为同电压的多个脚可以接到同一个电源端口，
+    把电容并排画在器件旁边，不必每个电容单独连线，只要用途清楚。
+    取舍：原理图层面要求「数量和值可追溯到引脚」，不强制逐脚连线的画法；邻近关系由布局阶段的规则检查。
+  applies_to: [mcu, ic, connector]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-004
+  title: 为每个输入定义确定电平，不允许悬空
+  domain: general
+  stage: schematic
+  severity: must
+  rule: >-
+    每个输入、使能、模式选择和开漏 / 三态线在所有状态（上电、复位、线缆拔出）下都有确定电平：外部上拉 / 下拉；
+    未使用的 CMOS 逻辑输入接电源或地；MCU 内部上下拉只有在该引脚复位状态允许时才可依赖。电阻取值不得使输入跳变时间超出器件限制。
+  rationale: >-
+    CMOS 输入悬空或缓慢穿越阈值区时，P 管 N 管同时导通，电源电流可达毫安级，还可能引起输出振荡与可靠性问题。
+    MCU 复位期间多数 GPIO 只是输入使能、没有上下拉，表现为高阻。
+  parameters:
+    - {name: bus_pullup_pulldown_resistance, op: range, value: [1000, 10000], unit: ohm, note: "TI SCBA004E 第 5 节：用于保持总线确定状态，通常 1-10 kOhm；还要满足最大输入跳变时间"}
+    - {name: esp32c3_internal_pullup_typ, op: "==", value: 45, unit: kohm, note: "数据手册 Table 5-4 的内部弱上拉典型值；复位期间多数 GPIO 无上拉（Table 2-1）"}
+    - {name: esp32c3_input_leakage_max, op: "<=", value: 50, unit: nA, note: "Table 5-4 的 IIH / IIL"}
+  verify:
+    - method: erc
+      tool: "KiCad ERC + 自写网表脚本"
+      check: >-
+        ERC 中 pin_not_driven、pin_not_connected 为 0；脚本另检查：只连接输入类引脚、没有驱动脚也没有电阻上下拉的网络（悬空输入）必须为 0。
+      automatable: partial
+    - method: bench
+      tool: "万用表 / 示波器"
+      check: "断开外部连接线后，逐个测量这些输入端的静态电平，必须处于确定的高或低；上电瞬间用示波器看有无中间电平。"
+      automatable: manual
+  sources:
+    - title: "Implications of Slow or Floating CMOS Inputs (SCBA004E)"
+      url: "https://www.ti.com/lit/an/scba004e/scba004e.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "1 Characteristics of Slow or Floating CMOS Inputs, 5 Pull-up or Pull-down Resistors"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "GPIO"
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "Table 2-1, Table 5-4"
+    - title: "Schematic Design Review Checklist（Pull-ups and pull-downs）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+  confidence: high
+  applies_to: [digital_io, cmos, mcu]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-005
+  title: 执行器驱动脚在上电和复位期间必须保持关断
+  domain: general
+  stage: schematic
+  severity: must
+  rule: >-
+    驱动 MOSFET 栅极、继电器、电机驱动使能的每个 MCU 引脚，必须有外部下拉（或拉向关断态）电阻，使引脚高阻或有毛刺期间栅极电压始终低于 Vgs(th) 最小值；
+    优先选没有已知上电毛刺的引脚，固件启动最早期把该引脚设成关断态输出。
+  rationale: >-
+    ESP32-C3 复位期间大部分 GPIO 只是输入使能、没有上下拉，栅极悬空会随机导通；个别引脚上电还有 5 ns 低电平毛刺，GPIO18 有约 50 us 的高电平毛刺。
+    引脚漏电流上限 50 nA，100 kOhm 下拉只产生 5 mV，对栅极阈值没有影响。
+  parameters:
+    - {name: esp32c3_input_leakage_max, op: "<=", value: 50, unit: nA, note: "数据手册 Table 5-4：IIH / IIL，用来估算下拉电阻的上限"}
+    - {name: esp32c3_gpio18_high_glitch, op: "==", value: 50000, unit: ns, note: "Table 2-2：GPIO18 上电高电平毛刺约 50 us，不要用它直接驱动执行器"}
+    - {name: esp32c3_low_glitch_pins, op: "==", value: 5, unit: ns, note: "Table 2-2：MTCK、MTDO、GPIO10、U0RXD 上电低电平毛刺"}
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "对每个 MOSFET 栅极（或驱动器使能）网络：必须存在一个电阻接到源极 / 地，阻值 <= 项目设定上限（示例板取 100 kOhm）；栅极网络不得直接连到 GPIO18。"
+      automatable: full
+    - method: spice
+      tool: "ngspice / LTspice"
+      check: >-
+        栅极 RC（含栅极电容）接高阻 MCU 引脚模型，再注入 50 us 的高电平毛刺：栅极峰值电压必须 < MOSFET 的 Vgs(th) 最小值，并留出余量。
+      automatable: partial
+    - method: bench
+      tool: "示波器 + 电流探头"
+      check: "多次冷启动、按复位键、切 EN，监视栅极和电机电流，不得出现非预期的动作或电流。"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "Table 2-1 Pin Overview, Table 2-2 Power-Up Glitches on Pins, Table 5-4"
+    - title: "Schematic Design Review Checklist（power-up-critical pins such as MOSFET and transistor gates）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+      section: "Pull-ups and pull-downs"
+    - title: "Schematic Checklist - ESP32-C3（GPIO 上电毛刺）"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "GPIO"
+  confidence: high
+  applies_to: [mosfet_gate, motor_driver, relay_driver]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-006
+  title: strapping / boot 引脚按手册配置且不加冲突负载
+  domain: general
+  stage: schematic
+  severity: must
+  rule: >-
+    对 MCU 的 strapping 和 boot 引脚，在原理图里写明复位释放时需要的电平，并保证外部电路（上拉、下拉、按键、模块）满足该电平和保持时间，
+    不在这些引脚上挂会改变电平或延时的负载。ESP32-C3：GPIO9 加上拉（按键拉低进入下载模式），GPIO2 也建议上拉，GPIO8 在 ROM 打印控制中有作用；GPIO9 不加大电容。
+  rationale: >-
+    strapping 引脚在复位释放时被锁存，电平错误会让芯片进入下载模式或不同的启动配置；
+    GPIO9 加大电容会拖慢上升沿而被误判成低电平。
+  parameters:
+    - {name: esp32c3_spi_boot_levels, op: qualitative, value: null, note: "GPIO2=1，GPIO8=任意，GPIO9=1（Table 3-3）"}
+    - {name: esp32c3_download_boot_levels, op: qualitative, value: null, note: "GPIO2=1，GPIO8=1，GPIO9=0（Table 3-3）"}
+    - {name: esp32c3_strapping_setup_time, op: ">=", value: 0, unit: ms, note: "tSU（Table 3-2）"}
+    - {name: esp32c3_strapping_hold_time, op: ">=", value: 3, unit: ms, note: "tH：CHIP_EN 变高之后需保持的时间（Table 3-2）"}
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "GPIO2、GPIO8、GPIO9 网络上：存在到 3V3 的上拉电阻（GPIO9、GPIO2 必须），没有对地的大电容，没有其他输出驱动或有源负载。"
+      automatable: partial
+    - method: bench
+      tool: "示波器 + UART 启动日志"
+      check: "抓 CHIP_EN 上升沿和 GPIO9 电平，确认 tH >= 3 ms 内电平稳定；不按 BOOT 时串口显示正常启动，按住 BOOT 复位后进入下载模式。"
+      automatable: manual
+  sources:
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "3 Boot Configurations, Table 3-1, 3-2, 3-3"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Strapping Pins"
+  confidence: high
+  applies_to: [esp32, mcu_boot]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-007
+  title: 复位 / 使能引脚不得悬空并满足上电时序
+  domain: general
+  stage: schematic
+  severity: must
+  rule: >-
+    复位 / 使能引脚（ESP32-C3 的 CHIP_EN）必须有确定电平，不得悬空；用 RC 延时使它在电源稳定之后才释放，建议 10 kOhm + 1 uF，
+    再按实际电源上升时间调整；上升慢或不稳的供电加监控器；复位走线要短；手动复位键与电容之间加串联电阻限制放电电流。
+  rationale: >-
+    复位过早释放，芯片会在电压不足时启动；走线长会耦合干扰导致误复位。
+    电容直接被开关短路时，放电电流只受接触电阻限制，开关抖动还会产生尖峰。
+  parameters:
+    - {name: chip_en_pullup_resistance, op: "==", value: 10, unit: kohm, note: "Espressif 建议的起始值，按实际电源时序调整"}
+    - {name: chip_en_capacitance, op: "==", value: 1, unit: uF, note: "同上"}
+    - {name: esp32c3_rail_stable_before_chip_en, op: ">=", value: 50, unit: us, note: "tSTBL（Table 2-11）"}
+    - {name: esp32c3_chip_en_low_to_reset, op: ">=", value: 50, unit: us, note: "tRST（Table 2-11）"}
+    - {name: esp32c3_vil_nrst_max, op: "<=", value: 0.25, unit: "x VDD", note: "复位阈值 VIL_nRST（Table 5-4）"}
+    - {name: esp32c3_vih_nrst_min, op: ">=", value: 0.75, unit: "x VDD", note: "释放阈值 VIH_nRST（Table 5-4）"}
+  verify:
+    - method: spice
+      tool: "ngspice / LTspice"
+      check: >-
+        用最慢和最快的电源上升时间仿真 RC 与上拉：EN 越过 0.75 x VDD 的时刻晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us；
+        掉电后再上电时 EN 低于 0.25 x VDD 的持续时间 >= 50 us。
+      automatable: partial
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "CHIP_EN 网络上必须同时存在上拉电阻和到地电容；复位按键支路中电容与按键之间有串联电阻。"
+      automatable: partial
+    - method: bench
+      tool: "示波器"
+      check: "测量 3V3 与 EN 的时序，并连续做 20 次以上冷启动与掉电重启，不得出现启动失败或需要手动复位。"
+      automatable: manual
+  sources:
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Chip Power-up and Reset"
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "2.5.3 Chip Power-up and Reset, Table 2-11, Table 5-4"
+    - title: "AN2519 AVR Microcontroller Hardware Design Considerations（外接复位开关需串联电阻）"
+      url: "https://ww1.microchip.com/downloads/en/Appnotes/AN2519-AVR-Microcontroller-Hardware-Design-Considerations-00002519B.pdf"
+      publisher: "Microchip"
+      kind: app_note
+      section: "Reset"
+  confidence: high
+  conflicts: >-
+    不同 MCU 的复位网络值不同：Microchip AVR 手册示例是 4.7 kOhm 上拉加 100 nF，ST 对 NRST 的建议也是 100 nF 量级（未取得原文），
+    而 ESP32-C3 的 CHIP_EN 建议 10 kOhm 加 1 uF。取舍：按所用器件的手册取值，不套用其他系列的 RC。
+  applies_to: [esp32, mcu_reset]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-008
+  title: 未用引脚按手册处理并显式标注
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    每个未用引脚都有明确处理：未用的 CMOS 逻辑输入接电源或地；未用的 XTAL 引脚接地；未用的 MCU GPIO 配成确定状态
+    （固件设输出低 / 启用内部上下拉，或预留不贴的外部上下拉焊盘）；数据手册标注 NC 的引脚按手册要求处理；
+    完全不连的引脚打 No-Connect 标记，使 ERC 保持干净。
+  rationale: >-
+    悬空的 CMOS 输入会引起额外电流和振荡；未连接也未打 NC 标记的引脚在 ERC 里是 Error，
+    如果被批量静音，真正漏接的引脚也会被一起掩盖。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations"
+      check: "pin_not_connected（默认 Error）、no_connect_connected、no_connect_dangling 均为 0；每个 NC 标记都在引脚上。"
+      automatable: full
+    - method: review
+      tool: "未用引脚表"
+      check: "逐个未用引脚核对：手册要求（接地 / 接电源 / 悬空 / 配置输出）、实际处理、固件配置三者一致。"
+      automatable: manual
+  sources:
+    - title: "Implications of Slow or Floating CMOS Inputs (SCBA004E)"
+      url: "https://www.ti.com/lit/an/scba004e/scba004e.pdf"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "5 Pull-up or Pull-down Resistors"
+    - title: "AN2519 AVR Microcontroller Hardware Design Considerations"
+      url: "https://ww1.microchip.com/downloads/en/Appnotes/AN2519-AVR-Microcontroller-Hardware-Design-Considerations-00002519B.pdf"
+      publisher: "Microchip"
+      kind: app_note
+      section: "6 Unused XTAL Pins"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "GPIO / Clock Source"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: high
+  applies_to: [mcu, logic_ic, module]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-009
+  title: 晶体负载电容按公式计算并留出杂散电容
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    芯片级晶体电路：先从晶体数据手册取 CL，估算总杂散电容 Cs（芯片引脚电容加 PCB），按 CL = C1 x C2 / (C1 + C2) + Cs 计算外部电容，
+    对称时 C1 = C2 = 2 x (CL - Cs)；取标准值后复核增益裕度和驱动功率，样板上用实测频偏微调。
+  rationale: >-
+    振荡频率取决于晶体看到的总负载电容；忽略杂散电容的「两倍 CL」做法会偏大。
+    增益裕度不足时可能在实验室起振、在高低温下不起振；驱动功率过大会损坏晶体。
+  parameters:
+    - {name: stray_capacitance_per_pin_estimate, op: range, value: [2, 5], unit: pF, note: "Microchip AN2519 第 5 节：单脚杂散电容 CS 的估计范围（对称布局），其公式写作 Ce + Ci = 2CL - CS；实际取决于布局与芯片引脚电容"}
+    - {name: oscillator_gain_margin_min, op: ">=", value: 5, unit: "倍", note: "ST AN2867 3.4：gm / gm_crit >= 5 才能保证可靠起振"}
+    - {name: esp32c3_xtal_frequency_error_after_tuning, op: "<=", value: 10, unit: ppm, note: "Espressif：在 TX tone 模式下测频偏并调整 C1/C2，需在 +-10 ppm 内；40 MHz 晶体精度 +-10 ppm"}
+    - {name: esp32c3_xtal_amplitude_min, op: ">", value: 500, unit: mV, note: "Espressif 建议晶体振幅大于 500 mV"}
+  verify:
+    - method: tline_calc
+      tool: "Python 计算脚本"
+      check: >-
+        输入 CL、Cs、ESR、C0、ppm 预算和 IC 的 gm_crit 参数：输出 C1 = C2、实际 CL、增益裕度 gm / gm_crit（>= 5）、驱动功率 DL（<= 晶体额定）。
+        公式：CL = C1*C2/(C1+C2)+Cs；gm_crit = 4*ESR*(2*pi*F)^2*(C0+CL)^2。
+      automatable: full
+    - method: bench
+      tool: "频率计 / 频谱仪（高阻探头）"
+      check: "在最终板上测振荡频率或射频输出频偏（ESP32-C3 用 TX tone），偏差在晶体和系统的 ppm 预算内；探头电容会改变负载，按手册方法修正。"
+      automatable: manual
+  sources:
+    - title: "AN2867 Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs (Rev 13)"
+      url: "https://ecsxtal.com/store/pdf/stm32-microcontroller-application-note-09232021.pdf"
+      publisher: "STMicroelectronics"
+      kind: app_note
+      section: "3.3 Load capacitance, 3.4 Oscillator transconductance, 3.5 Drive level"
+    - title: "AN2519 AVR Microcontroller Hardware Design Considerations"
+      url: "https://ww1.microchip.com/downloads/en/Appnotes/AN2519-AVR-Microcontroller-Hardware-Design-Considerations-00002519B.pdf"
+      publisher: "Microchip"
+      kind: app_note
+      section: "5 Using Crystal and Ceramic Resonators, Equation 2"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Clock Source"
+  confidence: high
+  conflicts: >-
+    Cs 的定义在资料间不同：ST AN2867 与 Espressif 的 Cs 是整个振荡回路的总杂散电容（公式 CL = C1*C2/(C1+C2) + Cs），
+    Microchip AN2519 的 CS 是单脚杂散电容（公式 Ce + Ci = 2CL - CS）。两种写法等价但数值不能混用；
+    取舍：沿用所用 MCU 数据手册 / 应用笔记的定义，并在原理图注释里写明 Cs 的取值和定义。
+  applies_to: [crystal, chip_down_mcu]
+
+- id: GEN-SCH-010
+  title: 为每个可编程器件引出调试 / 烧录接口
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    每个可编程器件都要引出烧录和调试接口，信号齐全：Cortex-M 用 Arm 10 针 1.27 mm 接口（VCC 目标参考电压、SWDIO / TMS、SWDCLK / TCK、GND、nRESET，SWO 视需要）；
+    ESP32-C3 至少引出 UART0 的 TX / RX、GND、CHIP_EN 和 GPIO9（BOOT）。接口线上加保护，睡眠模式下不要对调试口断电。
+  rationale: >-
+    没有可达的烧录口，一次固件问题就变成返工；nRESET 缺失时调试器无法做复位后停机，参考电压脚缺失时调试器无法检测目标电压（必需 / 可选的划分是常见做法，Arm 文档只给出接口定义）。
+    ESP32 的下载模式靠 GPIO9 与 EN 的组合进入，接口里漏掉其中一个就必须手动短接。
+  parameters:
+    - {name: cortex_debug_connector_pitch, op: "==", value: 1.27, unit: mm, note: "Arm Cortex Debug Connector（10 针）基于 Samtec 0.05 英寸微型插座"}
+    - {name: esp32c3_u0txd_series_resistor, op: "==", value: 499, unit: ohm, note: "Espressif UART 节：U0TXD 串联电阻"}
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "每个可编程器件对应的接口连接器上能追到：烧录所需全部信号（见规则）和 GND；接口网络上有 ESD 保护器件的连接。"
+      automatable: partial
+    - method: bench
+      tool: "烧录器 / esptool"
+      check: "新板用该接口完成烧录和读回校验，并能进入下载模式。"
+      automatable: manual
+  sources:
+    - title: "Cortex-M Debug Connectors"
+      url: "https://documentation-service.arm.com/static/5fce6c49e167456a35b36af1"
+      publisher: "Arm"
+      kind: datasheet
+      section: "Cortex Debug Connector (10-pin)"
+    - title: "Schematic Checklist - ESP32-C3"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "UART"
+    - title: "pcb-checklist: schematic checklist（Debug header）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: medium
+  applies_to: [programming, debug, swd, uart]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-011
+  title: 在原理图中为电源轨和关键信号预留测试点
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    原理图中为每个电源轨放测试点，至少放两个地测试点（探头接地用），并为复位 / 使能、烧录线、时钟和关键模拟节点放测试点；
+    测试点符号带封装，进入 BOM 与布局检查。测试点集中在板的一面。
+  rationale: >-
+    首板调试靠测试点定位问题；没有测试点时只能飞线或刮绿油。夹具测试时测试点还决定能否使用针床。
+  parameters:
+    - {name: test_pad_diameter_preferred, op: ">=", value: 1.0, unit: mm, note: "FixturFab：贴片测试焊盘首选；最小 0.8 mm"}
+    - {name: test_pad_diameter_min, op: ">=", value: 0.8, unit: mm, note: "FixturFab"}
+    - {name: test_point_pitch_preferred, op: ">=", value: 1.9, unit: mm, note: "中心距首选 1.9 mm（75 mil），最小 1.27 mm"}
+    - {name: test_point_to_board_edge_preferred, op: ">=", value: 5, unit: mm, note: "FixturFab：首选 5 mm，最小 3.175 mm"}
+    - {name: test_point_to_nearest_component_preferred, op: ">=", value: 1.5, unit: mm, note: "FixturFab：首选 1.5 mm，最小 1.0 mm"}
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "网表中每条电源轨网络至少有一个 TP 类元件；GND 网络至少有两个；复位 / 使能 / 烧录信号网络各至少一个。"
+      automatable: full
+    - method: geometry_script
+      tool: "pcbnew Python（参见 ee-pcb-verify 的 geometry 检查器）"
+      check: "每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近焊盘中心距 >= 1.27 mm，与板边 >= 3.175 mm，全部在同一面。夹具数值以实际测试厂要求为准。"
+      automatable: full
+  sources:
+    - title: "SMD Test Points and Design-for-Test Guidelines for PCBAs"
+      url: "https://fixturfab.com/resources/how-to-test/design-for-test"
+      publisher: "FixturFab"
+      kind: vendor_guide
+    - title: "pcb-checklist: schematic checklist（Test points）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+    - title: "Schematic Design Review Checklist（Test points and indicators）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+  confidence: medium
+  conflicts: >-
+    各资料给的焊盘与间距数值略有出入（有的最小 0.9 mm，推荐 1.27 mm），且依赖具体测试夹具。
+    取舍：以夹具厂文档的 1.0 / 0.8 mm 为基线，下单前以实际测试方的规则为准。DFM 领域的规则可能给出更细的几何要求，这里只管原理图层面的存在性。
+  applies_to: [test_point, bring_up]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-012
+  title: 全部元件完成标注，位号唯一且稳定
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    所有元件都已标注（无 ? 号），位号唯一；一旦 PCB 已开始布局，
+    不得随意重新标注，必须重标时通过「从原理图更新 PCB」传递，并检查网表对比。
+  rationale: >-
+    位号是原理图、BOM、PCB、坐标文件之间的关联键；重复位号或未标注元件会让 BOM 与贴装文件错位，
+    重新标注又会让已布局的位号与丝印整体对不上。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations"
+      check: "unannotated、duplicate_reference 为 0（两者均默认 Error）。"
+      automatable: full
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all"
+      check: "不得出现 Duplicate footprints、Missing footprint、Extra footprint（默认均为 Warning）。"
+      automatable: full
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Reference designators and annotation"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Annotation"
+    - title: "KiCad 10 PCB Editor manual — Schematic parity checks"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "List of DRC checks"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: high
+  applies_to: [schematic, bom]
+
+- id: GEN-SCH-013
+  title: 可选件和调试件标记 DNP 并保证属性两边一致
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    可选电路（预留的上下拉焊盘、0 欧姆跳线、调试接口、保护件）在原理图里照常画出并标 DNP，注明启用条件；
+    BOM 导出必须区分 DNP 行；原理图符号的 DNP / 不进 BOM / 不进板属性与 PCB 封装的属性必须一致。
+  rationale: >-
+    KiCad 的 DNP 元件封装仍会出现在板上，但不贴装；属性两边不一致会让贴片厂把不该贴的件贴上，
+    或漏贴必须的件。预留 0 欧姆比把 strapping 引脚硬接更便于后期调整。
+  verify:
+    - method: bom_check
+      tool: "kicad-cli sch export bom --fields Reference,Value,Footprint,${QUANTITY},${DNP}"
+      check: "DNP 行有明确的启用条件说明；贴装用的 BOM（--exclude-dnp）不含 DNP 行；设计 BOM 与贴装 BOM 的差集正好等于 DNP 清单。"
+      automatable: full
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all"
+      check: "不得出现 Footprint attributes don't match symbol（Value、DNP、Exclude from BOM 不一致，默认 Warning）。"
+      automatable: full
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — DNP and BOM / Variants"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Symbol attributes: Do not populate, Exclude from BOM"
+    - title: "KiCad Command-Line Interface — sch export bom"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "Schematic Checklist - ESP32-C3（SPI 线串联 0 欧姆预留）"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Flash"
+    - title: "pcb-checklist: schematic checklist（用 0 欧姆代替硬接 strapping）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: high
+  applies_to: [bom, variants]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-014
+  title: 每个对外连接器线路都要有保护决策
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    每个引出板外的连接器引脚都有一个明确的保护决策并画在原理图里：电源输入有保险丝 / PPTC、反接保护和 TVS；信号线有 ESD 二极管阵列。
+    TVS 的反向工作电压高于线路最大工作电压，钳位电压低于被保护 IC 的绝对最大值；预留不贴的保护焊盘也要画出来。
+  rationale: >-
+    连接器是 ESD 和浪涌的入口。保护器件在原理图里缺失，到布局阶段才补就没有合适位置；
+    TVS 离连接器越近、对地电感越小，钳位效果越好。
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist"
+      check: "对每个对外连接器的每个信号 / 电源引脚，网络上存在保护类元件（TVS、ESD 阵列、PPTC / 保险丝）或在白名单里有书面豁免。"
+      automatable: partial
+    - method: emc_precompliance
+      tool: "ESD 枪（IEC 61000-4-2 接触 / 空气放电）"
+      check: "对每个对外连接器按产品要求的等级放电，板子不得损坏、不得复位或死机（按产品的判据等级）。"
+      automatable: manual
+  sources:
+    - title: "ESD Protection Layout Guide (SLVA680)"
+      url: "https://www.ti.com/lit/pdf/slva680"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "TVS placement guidelines"
+    - title: "pcb-checklist: schematic checklist（Power: fuse / reverse-protect + TVS）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+    - title: "Schematic Checklist - ESP32-C3（电源入口 ESD 二极管 + 10 uF）"
+      url: "https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html"
+      publisher: "Espressif"
+      kind: vendor_guide
+      section: "Power Supply"
+  confidence: medium
+  conflicts: >-
+    保险丝与 TVS 的先后顺序在各资料中并不统一（TVS 在保险丝之前能先泄放能量但可能烧保险丝；在之后则保护下游）。
+    这里不规定顺序，只要求存在保护决策；顺序与器件选型归 emc_esd 领域的规则。
+  applies_to: [connector, power_input, usb, uart]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-015
+  title: 从数据手册典型电路出发并遵守元件限制说明
+  domain: general
+  stage: schematic
+  severity: must
+  rule: >-
+    以数据手册的典型应用电路为起点，逐条读「元件限制」类说明（稳压器输出电容类型 / ESR / 最小值、反馈电阻范围、使能时序），
+    偏离典型电路处在原理图注明理由。采购料号的数据手册才是准，不同厂商的同名料可能要求不同。
+  rationale: >-
+    线性稳压器的稳定性依赖输出电容的容值与 ESR，用错类型会振荡；偏离典型电路又未记录，评审和后续维护都无法判断是有意还是失误。
+  parameters:
+    - {name: ams1117_umw_output_capacitor, op: "==", value: 22, unit: uF, note: "UMW 版 AMS1117 手册：22 uF 钽电容可覆盖所有旁路情况；该手册未给出 ESR 范围。其他厂商版本可能要求不同，以实际料号手册为准"}
+  verify:
+    - method: review
+      tool: "对照表：原理图元件 vs 数据手册 Typical Application / Component Selection"
+      check: "每个 IC 列出手册中所有带 must / require / recommended 字样的元件要求，并逐条标记「满足」「偏离（理由）」。"
+      automatable: manual
+    - method: spice
+      tool: "厂商 SPICE 模型（ngspice / LTspice）"
+      check: "对稳压器输出网络做 AC 回路增益或负载阶跃仿真，电容使用有效容值（含直流偏压降低）和 ESR；相位裕度或负载阶跃的稳定性满足厂商判据。"
+      automatable: partial
+    - method: bench
+      tool: "示波器"
+      check: "负载阶跃和最大 / 最小负载下观察输出，不得有持续振荡。"
+      automatable: manual
+  sources:
+    - title: "AMS1117 1A LDO Voltage Regulator datasheet (UMW)"
+      url: "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/5011/AMS1117.pdf"
+      publisher: "UMW"
+      kind: datasheet
+      section: "FUNCTION DESCRIPTION"
+    - title: "pcb-checklist: schematic checklist（Confirm linear regulators and references are stable with the selected output cap ESR）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+      section: "Power"
+    - title: "Schematic Design Review Checklist（Power）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+  confidence: high
+  conflicts: >-
+    不同厂商的 AMS1117 兼容料数据手册对输出电容要求不一致（有的写 22 uF 钽，有的写 10 uF 钽或 MLCC；后者来自搜索结果摘要，未打开原文）。
+    取舍：以实际下单料号对应厂商的手册为准，并避免把 MLCC 直接当作 22 uF 钽的替代，除非该手册明确允许。
+  applies_to: [ldo, regulator, datasheet_review]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-016
+  title: 关键位置标注容差、耐压和取值依据
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    决定精度或稳定性的元件（反馈分压、增益电阻、检流电阻、基准、滤波器 RC、LDO 电容）在原理图字段里写明容差、耐压或额定功率、电容介质，
+    极性元件标极性；在图上用注释记录取值依据（公式、仿真文件名、各轨最大电流和主要器件耗散）。
+  rationale: >-
+    容差是误差预算的输入，不写出来就无法复核；取值依据丢失后，后续改版没人知道哪个值能动。
+    TI 的最坏情况分析把初始容差、温漂与老化分开累加，说明标称值不是设计值。
+  parameters:
+    - {name: monte_carlo_runs, op: range, value: [1000, 100000], unit: "次", note: "TI SLYP673：蒙特卡洛分析的典型运行次数"}
+    - {name: x7r_tolerance_stack_example, op: qualitative, value: null, note: "TI SLYP673 示例：X7R 初始 10%、温度 15%、寿命末期 21%；EOL 值应取自厂商"}
+  verify:
+    - method: bom_check
+      tool: "kicad-cli sch export bom 带 Tolerance、Voltage、Dielectric 字段"
+      check: "项目维护关键位号清单（反馈分压、检流、基准、滤波 RC、稳压器电容）；清单内元件的容差、耐压、介质字段必须非空，且容差不大于误差预算要求。"
+      automatable: partial
+    - method: spice
+      tool: "ngspice / LTspice（STEP + Monte Carlo）"
+      check: "对该功能块做极值（EVA）或蒙特卡洛分析：用初始容差、温漂和老化范围，输出误差落在需求给定的范围内。"
+      automatable: partial
+  sources:
+    - title: "Creating high quality electronics schematics"
+      url: "https://blog.poly.nomial.co.uk/2025-08-10-creating-high-quality-electronics-schematics.html"
+      publisher: "Graham Sutherland"
+      kind: blog
+      section: "Annotation of values, ratings, and limits"
+    - title: "How to avoid design problems by using worst case analysis calculations (SLYP673)"
+      url: "https://www.ti.com/lit/pdf/slyp673"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "Worst case analysis definition / method types / component tolerances"
+    - title: "pcb-checklist: schematic checklist（Specify voltage, power, and tolerance ratings for passives；标记极性元件）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+  confidence: medium
+  applies_to: [feedback_divider, current_sense, filter, reference]
+  tags: [cat-feeder]
+
+- id: GEN-SCH-017
+  title: I2C 上拉电阻按上升时间和灌电流计算
+  domain: general
+  stage: schematic
+  severity: should
+  rule: >-
+    I2C 上拉电阻满足 Rp(min) = (VCC - VOL(max)) / IOL 和 Rp(max) = tr / (0.8473 x Cb)，其中 tr 是所用速率模式的最大上升时间（30% 到 70%），
+    Cb 是总线电容；总线电容不得超出规范上限。在速度和功耗之间选值。
+  rationale: >-
+    上拉太强，器件下拉不到有效低电平；上拉太弱，RC 时间常数使线路在被拉低之前来不及升到高电平。
+  parameters:
+    - {name: i2c_rise_time_max_standard_mode, op: "<=", value: 1000, unit: ns, note: "SLVA689A Table 2-1；Fast mode 300 ns，Fast mode plus 120 ns"}
+    - {name: i2c_rise_time_max_fast_mode, op: "<=", value: 300, unit: ns, note: "SLVA689A Table 2-1"}
+    - {name: i2c_bus_capacitance_max_standard_fast, op: "<=", value: 400, unit: pF, note: "SLVA689A Table 2-1；Fast mode plus 为 550 pF"}
+    - {name: i2c_vol_max, op: "<=", value: 0.4, unit: V, note: "VCC > 2 V，灌 3 mA 时"}
+  verify:
+    - method: tline_calc
+      tool: "Python 计算脚本"
+      check: >-
+        输入 VCC、IOL、tr 上限、估算 Cb（元件引脚电容加走线电容）：计算 Rp(min) 和 Rp(max)，所选电阻必须落在区间内。
+        例：Cb = 200 pF、VCC = 3.3 V、Fast mode：Rp 在 0.97 到 1.77 kOhm 之间。
+      automatable: full
+    - method: bench
+      tool: "示波器"
+      check: "测 SDA / SCL 的 30%-70% 上升时间 <= 所用模式的 tr 上限，低电平 <= VOL(max)。"
+      automatable: manual
+  sources:
+    - title: "I2C Bus Pullup Resistor Calculation (SLVA689A)"
+      url: "https://www.ti.com/lit/pdf/slva689"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "2 Pullup Resistor Calculation, 4 Example"
+  confidence: high
+  applies_to: [i2c]
+
+# =====================================================================================================
+# netlist (NET)
+# =====================================================================================================
+- id: GEN-NET-001
+  title: 信号网络显式命名并统一命名风格
+  domain: general
+  stage: netlist
+  severity: should
+  rule: >-
+    信号网络用描述用途的名字，全设计统一一套风格（大小写、分隔符、低有效后缀）；名字只含字母、数字和下划线；
+    凡是出现在多页、网络类、测试点或固件引脚映射里的网络必须显式命名，不得依赖 Net-(R1-Pad1) 之类的自动名。
+  rationale: >-
+    没有标签的网络，KiCad 用所连的符号引脚生成名字，连接的引脚一变名字就变，按名字匹配的网络类、测试点和固件引脚表会失效；
+    同一网络上有两个不同的标签时 KiCad 只保留其中一个并给出警告，容易被当成噪声忽略。
+  verify:
+    - method: erc
+      tool: "自写脚本：kicad-cli sch export netlist --format kicadsexpr + kicad-cli sch erc"
+      check: >-
+        正则检查所有网络名 ^[A-Za-z0-9_+\-/]+$；属于以下集合的网络名不得以 Net-( 开头：网络类模式匹配到的网络、含测试点的网络、
+        固件引脚映射中的网络。ERC 的 multiple_net_names 为 0。
+      automatable: full
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Net name assignment / Labels"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+    - title: "Creating high quality electronics schematics"
+      url: "https://blog.poly.nomial.co.uk/2025-08-10-creating-high-quality-electronics-schematics.html"
+      publisher: "Graham Sutherland"
+      kind: blog
+      section: "Net labels and naming"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: medium
+  conflicts: >-
+    低有效信号的写法在各资料中并不统一（_N / _B 后缀、前缀 /、前缀 n 等）。取舍：选定一种写进项目约定并全局一致，不强求某一种。
+  applies_to: [net_naming]
+
+- id: GEN-NET-002
+  title: 网络类承载约束并保证每个网络都有归属
+  domain: general
+  stage: netlist
+  severity: should
+  rule: >-
+    在原理图 / 板级设置里定义网络类（至少 Default、大电流电源、差分对等），每个类写明线宽、间距、过孔尺寸、差分对宽度和间距；
+    按网络名模式或原理图网络类指令把每个网络分配到类；板级设置里的约束是不可被网络类突破的最小值。
+  rationale: >-
+    约束写在网络类里，布线与 DRC 才能自动执行，不靠人记；未分配的网络落入 Default，大电流网络落入 Default 就会按信号线宽布线。
+    网络类里的线宽 / 过孔是首选值而不是上下限，真正的下限在板级设置。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all"
+      check: "undefined_netclass（默认 Error）为 0。"
+      automatable: full
+    - method: drc
+      tool: "解析 .kicad_pro 的 net_settings + kicad-cli pcb drc"
+      check: >-
+        脚本读出每个网络所属的类，对电源 / 电机大电流网络必须分配到大电流类（线宽满足载流计算）；
+        DRC 在对应约束下无线宽 / 间距违规。
+      automatable: partial
+  sources:
+    - title: "KiCad 10 PCB Editor manual — Net Classes"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Net Classes"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: high
+  applies_to: [netclass, constraints]
+  tags: [cat-feeder]
+
+- id: GEN-NET-003
+  title: 差分对的两个网络同名并用一致的 _P/_N 后缀
+  domain: general
+  stage: netlist
+  severity: must
+  rule: >-
+    差分对的两个网络使用相同的基础名和一致的后缀对：_P / _N 或 + / -，不得混用（USB+ 配 USB_N 不构成一对）；
+    在原理图里命名，不在 PCB 里改。
+  rationale: >-
+    KiCad 靠基础名加正负后缀识别差分对，识别不了就无法用差分对布线器，长度和间距规则也无法按对应用。
+  verify:
+    - method: erc
+      tool: "自写脚本：网表中配对检查"
+      check: "每个以 _P 或 + 结尾的网络都存在同基础名、同风格的 _N 或 - 网络，反之亦然；同一设计里不出现两种后缀风格混用的配对。"
+      automatable: full
+    - method: drc
+      tool: "自定义规则 .kicad_dru 中的 inDiffPair() 条件 + kicad-cli pcb drc"
+      check: "对差分对写间距 / 长度偏差规则后，DRC 能对该对给出结果（规则被命中），而不是被忽略。"
+      automatable: partial
+  sources:
+    - title: "KiCad 10 PCB Editor manual — Routing differential pairs"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Routing differential pairs"
+  confidence: high
+  applies_to: [differential_pair, usb]
+
+- id: GEN-NET-004
+  title: 网络只在原理图里改，PCB 变更要反向标注
+  domain: general
+  stage: netlist
+  severity: must
+  rule: >-
+    连接关系只在原理图中修改，用「从原理图更新 PCB」传递；PCB 侧发生的变更（引脚交换、门交换、位号重排、封装更换）
+    必须用「从 PCB 更新原理图」同步回去并审阅预览，再重新做一次正向更新，直到两侧无差异。
+  rationale: >-
+    正向和反向标注是原理图与 PCB 保持一致的唯一通道；在 PCB 里手改网络会在下次正向更新时被覆盖或产生冲突。
+    更新默认按符号的唯一标识（UUID）而不是位号匹配，「按位号重新关联」选项通常应保持关闭。
+  verify:
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations"
+      check: "每次 PCB 变更之后，在更新原理图并完成正向更新后重新运行，退出码为 0（无任何严重级别的奇偶性差异）。"
+      automatable: full
+    - method: review
+      tool: "KiCad 更新预览窗口（Changes To Be Applied）"
+      check: "更新前逐项审阅预览：只有预期的位号、网络、字段变化；不勾选「按位号重新关联」，除非有明确原因。"
+      automatable: manual
+  sources:
+    - title: "KiCad 10 PCB Editor manual — Update PCB from Schematic / Update Schematic from PCB"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Forward and back annotation"
+    - title: "KiCad 10 PCB Editor manual — Pin and gate swapping"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Pin and gate swapping"
+  confidence: high
+  applies_to: [annotation, schematic_pcb_sync]
+  tags: [cat-feeder]
+
+- id: GEN-NET-005
+  title: 原理图与 PCB 奇偶性检查要连警告一起设为门禁
+  domain: general
+  stage: netlist
+  severity: must
+  rule: >-
+    签核门禁必须运行 kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations（退出码 0 才通过）；
+    不能只数 Error。重复 / 缺失 / 多余封装、焊盘网络不一致、属性不一致都必须为 0。
+  rationale: >-
+    KiCad 把大多数奇偶性检查的默认严重级别设为 Warning（只有「元件间缺少连接」是 Error，封装过滤器检查默认被忽略），
+    只看 Error 数的门禁会放过原理图与 PCB 不一致的板子。CLI 没加 --exit-code-violations 时，有违规也可能返回成功。
+  parameters:
+    - {name: kicad_cli_exit_code_no_violations, op: "==", value: 0, unit: "退出码", note: "kicad-cli --exit-code-violations"}
+    - {name: kicad_cli_exit_code_violations, op: "==", value: 5, unit: "退出码", note: "存在违规时的退出码"}
+  verify:
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations --format json"
+      check: >-
+        退出码为 0；JSON 报告中奇偶性类的违规数为 0（JSON 键名随 KiCad 版本核对）。固定 KiCad 主版本，因为不同版本的检查项和默认严重级别会变。
+      automatable: full
+  sources:
+    - title: "KiCad 10 PCB Editor manual — List of DRC checks（Schematic parity 表）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Design rules checking"
+    - title: "KiCad Command-Line Interface — pcb drc"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "pcb drc"
+    - title: "How to run ERC in KiCad from the command line reliably"
+      url: "https://www.makeirl.com/blog/run-erc-kicad-command-line"
+      publisher: "MakeIRL"
+      kind: blog
+  confidence: high
+  applies_to: [kicad, gate]
+  tags: [cat-feeder]
+
+- id: GEN-NET-006
+  title: 出图前做网表差异对比并附 IPC-D-356
+  domain: general
+  stage: netlist
+  severity: should
+  rule: >-
+    出图前对比三份网表：原理图导出的网表、PCB 提取的网表、上一个已下单版本的网表，所有差异都要能对应到变更记录；
+    出图包里附 IPC-D-356 网表，让板厂能用它核对 Gerber 提取出的连接关系。
+  rationale: >-
+    Gerber 只有几何，没有连接信息；板厂可以用客户给的网表对照自己从 Gerber 提取的网络，发现开路、短路和输出错误。
+    与上一版对比能把非预期改动（例如自动更新带来的）在下单前暴露出来。
+  verify:
+    - method: netlist_diff
+      tool: "kicad-cli sch export netlist + 解析 .kicad_pcb 的脚本"
+      check: >-
+        分别提取 (位号, 引脚号, 网络名) 三元组的集合，计算三组之间的差集；原理图 vs PCB 差集必须为空；
+        当前 vs 上一版的差集必须全部能在变更记录里找到对应条目。
+      automatable: full
+    - method: review
+      tool: "出图包检查清单"
+      check: "出图目录含 IPC-D-356 文件；记录它由哪个版本的 EDA 生成；板厂是否使用它由板厂确认（本条未核实 JLCPCB 的做法）。"
+      automatable: partial
+  sources:
+    - title: "Do You Need an IPC-D-356 Netlist?"
+      url: "https://resources.altium.com/p/do-you-need-ipc-d-356-netlist"
+      publisher: "Altium"
+      kind: vendor_guide
+    - title: "KiCad Command-Line Interface — sch export netlist"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "sch export netlist"
+    - title: "KiCad 10 PCB Editor manual — Fabrication outputs（IPC-D-356 与其他制造输出）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+  confidence: medium
+  applies_to: [release, fabrication_package]
+  tags: [cat-feeder]
+
+- id: GEN-NET-007
+  title: 排查孤立标签、单引脚网络和意外短接
+  domain: general
+  stage: netlist
+  severity: should
+  rule: >-
+    除测试点和已登记的刻意情形外，每个网络至少连两个引脚；标签只出现一次的全局标签视为拼写错误嫌疑；
+    刻意短接两个网络要用 net tie，不要靠导线；DRC 中「元件间缺少连接」与「两网络被短接」必须为 0。
+  rationale: >-
+    标签拼错会产生没有任何其他引脚的孤立网络，对 ERC 来说「标签只有一个」默认还是被忽略的检查；
+    DRC 只能发现铜皮上的缺失连接和短路，发现不了「根本没有被画进网络」的问题。
+  verify:
+    - method: erc
+      tool: "自写脚本：网表中统计每个网络的引脚数 + kicad-cli sch erc"
+      check: "引脚数为 1 的网络必须在白名单（测试点、预留）中；ERC 中 label_dangling（Error）、isolated_pin_label（KiCad 10 Warning）、global_label_dangling（KiCad 9 Warning）为 0，并启用 single_global_label。"
+      automatable: full
+    - method: drc
+      tool: "kicad-cli pcb drc --severity-all"
+      check: "Missing connection between items（默认 Error）与 Items shorting two nets（默认 Error）为 0；刻意短接处使用 net tie 并且不触发短路违规。"
+      automatable: full
+  sources:
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+    - title: "KiCad 10 PCB Editor manual — DRC checks（Items shorting two nets 建议用 net tie）"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "List of DRC checks"
+  confidence: high
+  applies_to: [netlist, labels]
+
+- id: GEN-NET-008
+  title: 引脚 / 门交换只在功能等价的引脚间进行
+  domain: general
+  stage: netlist
+  severity: should
+  rule: >-
+    引脚交换和门交换只用于功能完全等价的引脚（同一封装里完全相同的逻辑门；MCU 上在 IO MUX 与模拟功能表里都具备所需功能的普通 GPIO），
+    不碰 strapping、专用模拟、USB、flash 占用脚；交换后必须同步回原理图，并同步更新固件引脚映射。
+  rationale: >-
+    KiCad 的交换不检查电气等价性，由设计者负责；交换在 PCB 上立即生效，原理图要等「从 PCB 更新原理图」才改变，
+    忘了同步会让原理图、固件与板子三者不一致。
+  verify:
+    - method: netlist_diff
+      tool: "kicad-cli pcb drc --schematic-parity + 固件引脚映射文件比对脚本"
+      check: "交换并更新原理图之后，奇偶性检查为 0；固件引脚映射（YAML / 头文件）与网表中 MCU 引脚的网络名逐项一致。"
+      automatable: partial
+    - method: review
+      tool: "评审清单"
+      check: "对每次交换的引脚，在数据手册的引脚功能表里确认被交换的两个引脚都具备所需功能，且不在受限引脚清单里。"
+      automatable: manual
+  sources:
+    - title: "KiCad 10 PCB Editor manual — Pin and gate swapping"
+      url: "https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Pin and gate swapping"
+    - title: "ESP32-C3 Series Datasheet v2.4"
+      url: "https://documentation.espressif.com/esp32-c3_datasheet_en.pdf"
+      publisher: "Espressif"
+      kind: datasheet
+      section: "2.2 Pin Overview, Table 2-4 IO MUX Pin Functions, Table 2-6 Analog Functions"
+  confidence: high
+  applies_to: [pin_swap, gate_swap, mcu]
+
+# =====================================================================================================
+# verification (VER)
+# =====================================================================================================
+- id: GEN-VER-001
+  title: ERC 零违规，例外逐条带理由，禁止整类静音
+  domain: general
+  stage: verification
+  severity: must
+  rule: >-
+    原理图 ERC 在所有严重级别上报告 0 个违规；确属误报的单项用「带注释排除」并写明原因，禁止用「忽略全部」或降低整类严重级别来通过。
+    定期用 --severity-exclusions 复查排除项，清理过期例外。
+  rationale: >-
+    ERC 只有在每条违规都被认真对待时才有意义；整类降级会让新出现的真问题一起沉默，
+    而排除缺失电源脚的标记并不会让这些引脚进入网表，板子上仍然是一个没供电的器件。
+  parameters:
+    - {name: kicad_cli_exit_code_no_violations, op: "==", value: 0, unit: "退出码", note: "kicad-cli sch erc --exit-code-violations"}
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations --format json"
+      check: "在干净检出、固定 KiCad 主版本下运行，退出码为 0；JSON 报告解析而不是正则匹配文本。"
+      automatable: full
+    - method: erc
+      tool: "解析 .kicad_pro 的 ERC 设置与排除列表的脚本；kicad-cli sch erc --severity-exclusions"
+      check: >-
+        每个排除项都有非空注释；没有被设为 ignore 的检查项超出项目基线清单；--severity-exclusions 的报告与上次评审保存的例外清单逐项对照。
+        （.kicad_pro 内的字段名随 KiCad 版本核对）
+      automatable: partial
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Electrical rules checking（Excluding violations）"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Electrical rules checking"
+    - title: "How to run ERC in KiCad from the command line reliably"
+      url: "https://www.makeirl.com/blog/run-erc-kicad-command-line"
+      publisher: "MakeIRL"
+      kind: blog
+    - title: "pcb-checklist: schematic checklist（ERC 100% clean，例外逐个检查签字）"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+      section: "ERC"
+    - title: "Symbol has power input pins that are not placed — KiCad ERC"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/missing-power-pin/"
+      publisher: "pcbkit"
+      kind: blog
+  confidence: high
+  applies_to: [erc, sign_off]
+  tags: [cat-feeder]
+
+- id: GEN-VER-002
+  title: 按类别理解 ERC 违规，PWR_FLAG 只放在真实电源源头
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    处理 ERC 违规时先识别类别再动手：连接类（pin_not_connected、wire_dangling）、电气类型类（pin_to_pin、pin_not_driven、power_pin_not_driven）、
+    命名类（multiple_net_names、similar_*）、库类（lib_symbol_mismatch）、层次类（hier_label_mismatch）。
+    「Input Power pin not driven」用 PWR_FLAG 或输出电源脚消除，但 PWR_FLAG 只放在真实的电源源头（连接器输入、电池端、稳压器输出）。
+  rationale: >-
+    PWR_FLAG 声明「这个网络有电源」，并不创造电源；散落在每个警告上的 PWR_FLAG 会让真正缺失的供电不再被报告。
+    ERC 不能穿过无源器件（保险丝、磁珠、跳线）传播供电，下游侧可能需要单独标注。
+  parameters:
+    - {name: erc_power_pin_not_driven_default_severity, op: qualitative, value: null, note: "默认 Error；常见于电源来自无源连接器时"}
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all"
+      check: "报告中 power_pin_not_driven、pin_to_pin、pin_not_driven 为 0；脚本统计 PWR_FLAG 个数与位置，每个 PWR_FLAG 都必须在电源入口 / 稳压器输出等白名单位置。"
+      automatable: partial
+    - method: review
+      tool: "评审清单"
+      check: "对每个 PWR_FLAG 回答：它代表的真实电源是什么？答不出来的删除并修复根因（符号引脚类型或缺失的供电）。"
+      automatable: manual
+  sources:
+    - title: "KiCad 10 Schematic Editor manual — Electrical rules checking / PWR_FLAG"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Electrical rules checking"
+    - title: "KiCad ERC Error Reference"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+    - title: "How to run ERC in KiCad from the command line reliably"
+      url: "https://www.makeirl.com/blog/run-erc-kicad-command-line"
+      publisher: "MakeIRL"
+      kind: blog
+      section: "PWR_FLAG"
+  confidence: high
+  applies_to: [erc, power_flag]
+  tags: [cat-feeder]
+
+- id: GEN-VER-003
+  title: 打开默认被忽略的 ERC 检查
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    把默认「忽略」的 ERC 检查改成 Warning 或 Error 并纳入门禁：至少包括 single_global_label（全局标签只出现一次）、
+    footprint_filter（封装与符号过滤器不符）；四路交叉点 four_way_junction 视图纸风格决定是否开启。
+  rationale: >-
+    全局标签拼错是最常见的静默断线，默认检查是关着的；封装过滤器可以拦住把 0402 电阻误指到电解电容封装之类的错误。
+  verify:
+    - method: erc
+      tool: "解析 .kicad_pro 的 ERC 严重级别表的脚本"
+      check: "single_global_label、footprint_filter 的严重级别不是 ignore；kicad-cli sch erc 在启用后无违规。"
+      automatable: full
+  sources:
+    - title: "KiCad ERC Error Reference（默认严重级别表）"
+      url: "https://pcbkit.com/tools/kicad-erc-reference/"
+      publisher: "pcbkit"
+      kind: blog
+    - title: "KiCad 10 Schematic Editor manual — Electrical rules checking（Ignored by default）"
+      url: "https://docs.kicad.org/10.0/en/eeschema/eeschema.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "Electrical rules checking"
+  confidence: high
+  applies_to: [erc, kicad]
+
+- id: GEN-VER-004
+  title: 布局前由第二人对照数据手册做原理图评审
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    布局前，由没画这张图的人用版本化的检查清单评审原理图：逐 IC 逐引脚核对数据手册和勘误，电源树、复位 / 启动、去耦、连接器、BOM 与降额；
+    记录发现与处理结果并签字。ERC 零违规不等于评审通过。
+  rationale: >-
+    ERC 只检查连接的电气类型规则，查不出分压比算错、缺上拉、引脚号对错或热设计；
+    自检容易重复自己的假设，第二人更容易发现设计假设上的错误。
+  verify:
+    - method: review
+      tool: "评审清单（版本化，如 docs 下的 schematic_review.md）+ 评审记录"
+      check: >-
+        清单至少覆盖：每个 IC 引脚与数据手册逐脚核对、勘误、电源轨预算、上电时序、复位与 strapping、去耦、未用引脚、连接器保护、
+        降额、BOM 生命周期。每条有「通过 / 不适用 / 发现 + 处理」记录；评审人不是原作者。
+      automatable: manual
+  sources:
+    - title: "Schematic Design Review Checklist"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+    - title: "pcb-checklist: schematic checklist"
+      url: "https://github.com/azonenberg/pcb-checklist/blob/master/schematic-checklist.md"
+      publisher: "Andrew Zonenberg"
+      kind: blog
+    - title: "How to run ERC in KiCad from the command line reliably（Limits：零违规 ERC 不验证数据手册限值、引脚、稳定性等）"
+      url: "https://www.makeirl.com/blog/run-erc-kicad-command-line"
+      publisher: "MakeIRL"
+      kind: blog
+      section: "Limits"
+  confidence: high
+  applies_to: [design_review]
+
+- id: GEN-VER-005
+  title: 布局前只仿真数据手册答不了的关键块
+  domain: general
+  stage: verification
+  severity: consider
+  rule: >-
+    布局前对数据手册无法直接回答的块做仿真：上电 / 复位时序（电源斜坡加 RC）、稳压器稳定性与负载阶跃（用有效电容与 ESR）、
+    检流放大链的增益 / 限幅 / 滤波、栅极驱动与续流路径、容差最坏情况。数据手册已给出结论的简单电路不必仿真。
+  rationale: >-
+    仿真的成本在建模和验证模型，只有结果会改变设计决策的块才值得做；
+    这些块的错误在板子回来之后很难靠改值修复，且依赖元件的实际行为（偏压降容、ESR、容差）。
+  verify:
+    - method: spice
+      tool: "ngspice（kicad-cli sch export netlist --format spice 或 KiCad 内置仿真器）"
+      check: >-
+        对每个入选块写一个带判据的仿真网表（例如 EN 越过阈值的时刻、输出过冲 / 欠冲、ADC 输入最大电压、栅极峰值电压），
+        批处理运行并检查判据；容差用 STEP 或蒙特卡洛（TI 示例为 1000-100000 次）。
+      automatable: partial
+  sources:
+    - title: "Schematic Design Review Checklist（Power：simulate switch-mode regulators for stability, current capability and voltage regulation）"
+      url: "https://resources.altium.com/p/schematic-review-checklist"
+      publisher: "Altium"
+      kind: vendor_guide
+    - title: "How to avoid design problems by using worst case analysis calculations (SLYP673)"
+      url: "https://www.ti.com/lit/pdf/slyp673"
+      publisher: "Texas Instruments"
+      kind: app_note
+    - title: "KiCad Command-Line Interface — sch export netlist（spice 格式）"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+  confidence: medium
+  applies_to: [simulation, power_up, ldo, current_sense, gate_drive]
+  tags: [cat-feeder]
+
+- id: GEN-VER-006
+  title: 把仿真与实测对照并记录模型的适用范围
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    用作签核依据的仿真，必须有同条件下的实测对照，并记录模型的特性、对照结果和局限；厂商模型在对照前只当作假设。
+    差异超出规定范围时修正模型或加大设计余量，不直接采信仿真。
+  rationale: >-
+    EDN 的案例里，厂商 LDO 模型显示带宽约为实测的两倍、相位裕度超过 30 度，而实测只有约 21.7 度，67.3 kHz；
+    只信仿真会误判稳定。分立元件模型也可能有错误（钽电容软件模型的错误、MOSFET 的米勒电荷与手册不符）。
+  parameters:
+    - {name: example_ldo_bench_phase_margin, op: "==", value: 21.7, unit: deg, note: "EDN/AEi 案例的实测相位裕度（带宽 67.3 kHz）；厂商模型给出超过 30 度。案例值，不是阈值"}
+  verify:
+    - method: bench
+      tool: "示波器 / 网络分析仪 / 阶跃负载"
+      check: "按相同的负载、电压、温度条件测量被仿真的指标（输出阶跃响应、带宽、相位裕度或建立时间），与仿真结果并列记录差异。"
+      automatable: manual
+    - method: spice
+      tool: "ngspice / LTspice"
+      check: "用实测修正后的模型重跑签核仿真；差异超出项目规定的容忍范围（项目自定）时，模型不得用作签核依据。"
+      automatable: partial
+  sources:
+    - title: "SPICE models need correlation to measurements"
+      url: "https://www.edn.com/spice-models-need-correlation-to-measurements/"
+      publisher: "EDN"
+      kind: blog
+  confidence: medium
+  applies_to: [simulation, bench_correlation]
+
+- id: GEN-VER-007
+  title: 首次上电按步骤逐轨进行并限流
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    首板上电前先目检并测量每条电源轨对地电阻（接近 0 欧姆就停止）；用限流可调的台式电源，限流设在略高于预期静态电流处，
+    电压从零缓升；从输入向内逐轨上电，每个稳压器输出确认无误再启用下一级；上电时用热像仪或手指监测发热。
+  rationale: >-
+    新板最常见的首次上电故障是短路、反向和焊接桥连；限流把故障限制在不烧毁器件的能量内，逐轨上电让故障定位到一个稳压器范围内。
+  parameters:
+    - {name: first_power_current_limit_small_board, op: range, value: [50, 100], unit: mA, note: "projects-house 对小型板的建议，略高于预期静态电流；示例板含电机和射频，应按各级预期电流单独设"}
+  verify:
+    - method: bench
+      tool: "限流台式电源、万用表、热像仪"
+      check: >-
+        步骤清单：1) 目检（放大 10 倍）；2) 各轨对地电阻并记录；3) 限流上电，缓升电压，监测电流；
+        4) 出现恒流模式、电流随电压持续上升或发热时停止；5) 逐轨测实际电压并与预期比较；6) 确认上电时序。
+        每一步记录实际值。
+      automatable: manual
+  sources:
+    - title: "PCB Bring-Up: Powering On a New Board Without Killing It"
+      url: "https://www.projects-house.com/articles/electronics-development/pcb-bring-up-new-board/"
+      publisher: "Projects House"
+      kind: blog
+  confidence: medium
+  applies_to: [bring_up, first_article]
+  tags: [cat-feeder]
+
+- id: GEN-VER-008
+  title: 下单前按固定门禁逐项签核
+  domain: general
+  stage: verification
+  severity: must
+  rule: >-
+    生成订单（或把文件发给板厂 / 贴片厂）之前，全部门禁必须通过并有记录：ERC 零违规；含奇偶性的 DRC 零违规（所有严重级别）；
+    BOM 每个非 DNP 行都能匹配厂方料号；贴装预览已核对旋转与极性；网表差异已审阅且附 IPC-D-356；独立评审完成；
+    当前版本已打标签。涉及付款的步骤另需人工明确同意（作者的约定）。
+  rationale: >-
+    各检查覆盖的范围互不重叠：ERC 不替代 DRC 和奇偶性，DRC 查不出旋转错误，零违规也不验证数据手册限值。
+    任何一项缺失，错误都会带到板厂。
+  verify:
+    - method: erc
+      tool: "kicad-cli sch erc --severity-all --exit-code-violations"
+      check: "门禁 1：退出码 0。"
+      automatable: full
+    - method: drc
+      tool: "kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations"
+      check: "门禁 2：退出码 0。"
+      automatable: full
+    - method: bom_check
+      tool: "kicad-cli sch export bom + 厂方零件库匹配脚本"
+      check: "门禁 3：每个非 DNP 行有 MPN 和 LCSC 号且在库中匹配（见 GEN-ARC-005、GEN-LIB-008）。"
+      automatable: full
+    - method: review
+      tool: "门禁运行器（形如 scripts/preflight.py 的脚本）+ 签核清单"
+      check: >-
+        门禁 4-7：贴装预览旋转核对记录、网表差异记录（GEN-NET-006）、评审记录（GEN-VER-004）、git 标签存在。
+        运行器汇总所有门禁，任一失败则返回非零退出码并阻止后续下单步骤。
+      automatable: partial
+  sources:
+    - title: "How to run ERC in KiCad from the command line reliably"
+      url: "https://www.makeirl.com/blog/run-erc-kicad-command-line"
+      publisher: "MakeIRL"
+      kind: blog
+      section: "Limits / CI gating"
+    - title: "KiCad Command-Line Interface"
+      url: "https://docs.kicad.org/8.0/en/cli/cli.html"
+      publisher: "KiCad"
+      kind: tool_doc
+      section: "sch erc / pcb drc"
+    - title: "PCB Assembly FAQs（BOM 中匹配不到库的料不会被贴装）"
+      url: "https://jlcpcb.com/help/article/pcb-assembly-faqs"
+      publisher: "JLCPCB"
+      kind: vendor_guide
+    - title: "Do You Need an IPC-D-356 Netlist?"
+      url: "https://resources.altium.com/p/do-you-need-ipc-d-356-netlist"
+      publisher: "Altium"
+      kind: vendor_guide
+  confidence: medium
+  applies_to: [release, order, gate]
+  tags: [cat-feeder]
+
+- id: GEN-VER-009
+  title: EDA 文件进版本控制，忽略缓存并给下单版本打标签
+  domain: general
+  stage: verification
+  severity: should
+  rule: >-
+    项目文件（.kicad_pro、.kicad_sch、.kicad_pcb、项目本地库、库表、被引用的 3D 模型）放进 git；忽略缓存、锁文件、自动备份和可再生输出；
+    每个下单版本打标签并保存其出图包的清单（文件名与哈希）；评审用渲染出的图而不是原始 s-expression 差异。
+  rationale: >-
+    KiCad 的文件是文本，可以进 git，但一个电阻的改动可能触及几百行，原始差异不适合评审；
+    备份 zip 每次保存都会重写，是仓库膨胀的主因；没有标签就无法复现某个已下单版本。
+  verify:
+    - method: review
+      tool: "git ls-files 与 .gitignore 检查脚本"
+      check: >-
+        git ls-files 中不得出现 fp-info-cache、*-backups/、_autosave-*、~*.lck、*.kicad_prl 等；
+        项目文件、sym-lib-table、fp-lib-table 和项目库必须已被跟踪；每个已下单版本存在 git 标签，且标签对应的出图包清单文件存在。
+      automatable: full
+  sources:
+    - title: "KiCad.gitignore (github/gitignore)"
+      url: "https://github.com/github/gitignore/blob/main/KiCad.gitignore"
+      publisher: "GitHub"
+      kind: tool_doc
+    - title: "Version control for KiCad projects"
+      url: "https://boardrepo.com/guides/kicad-version-control"
+      publisher: "BoardRepo"
+      kind: blog
+  confidence: medium
+  conflicts: >-
+    GitHub 的 KiCad.gitignore 忽略备份、自动保存和 fp-info-cache；BoardRepo 的指南认为自动保存和备份默认应保留，因为它们可能含有主文件里没有的恢复内容。
+    取舍：备份 zip 和自动保存不进 git（体积与噪声），恢复靠频繁提交；缓存与锁文件一律忽略。
+  applies_to: [version_control, git]

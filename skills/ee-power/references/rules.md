@@ -1,0 +1,1140 @@
+# 电源与功率（power）— 规则全文
+
+垂直领域 · 54 条规则 · 由 `catalog/*.yaml` 生成，请改 YAML 不要改本文件。用 `grep -n "<规则ID>" rules.md` 定位单条，不要整份读。
+
+环节分布：架构与选型 7，符号封装库 2，原理图 16，叠层与规则 1，分区规划 2，器件布局 7，布线 8，平面与铺铜 4，签核验证 7
+
+## 架构与选型（architecture）
+
+<a id="PWR-ARC-002"></a>
+#### PWR-ARC-002 · 按最坏耗散核算 LDO 结温（SOT-223 AMS1117）
+`must` · 可信度 `high` · 适用: ldo, sot-223, ams1117 · 标签: cat-feeder
+
+**规则** 对每个线性稳压器计算 P=(Vin_max-Vout)*Iout_max 和 Tj=Ta_max+P*RthetaJA，要求 Tj 低于数据手册的工作结温上限（AMS1117 为 125 C）；热阻必须取该型号数据手册、对应封装和实际铜面积的数值。
+
+**依据** LDO 的压降全部变成热量，SOT-223 封装的热阻很高，5 V 转 3.3 V 的 0.35 A 就接近极限；超温会进入热关断，输出周期性掉电。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `tj_max` | <= 125 C | AMS1117 数据手册 Thermal Protection：器件功能只保证到 125 C，热关断点约 150 C。 |
+| `rtheta_ja_sot223_ams1117_datasheet` | == 150 C/W | DigiKey 托管的 AMS1117-3.3 SOT-223 数据手册（SLKOR 版本）；同一数据手册给出 SOT-223 最大耗散 PD=600 mW。TI LM1117 的 SOT-223 RthetaJA 为 61.6 C/W（JEDEC 板），两者差一倍以上，取决于铜面积与厂商，不能互相套用。 |
+| `pd_max_sot223_ams1117_datasheet` | <= 600 mW | 同一份数据手册的绝对最大额定值表。 |
+
+**验证**
+- `bom_check`（full）· Python 计算脚本读 BOM + 网络表 — 对每个 LDO：Vin_max 取上游最大电压（如 5.25 V），Iout_max 取各负载峰值之和，算 P 和 Tj；要求 Tj <= 125 C 且 P <= 数据手册 PD。示例板的算例：(5-3.3)*0.35 A=0.595 W，按 150 C/W 温升 89 C，环境 40 C 时 Tj 约 129 C，超限，需换大铜面积、LM1117 类低热阻器件，或改用开关稳压器。
+- `thermal_sim`（partial）· 热阻网络估算或 PCB 热仿真 — 用实际 SOT-223 散热焊盘（VOUT 引脚相连的 tab）铜面积修正 RthetaJA，重算 Tj。
+- `bench`（manual）· 热电偶或热像仪 — 满载运行至热平衡，测封装壳温，反推 Tj，要求低于 125 C。
+
+**来源分歧** SOT-223 热阻在不同来源差异很大：AMS1117 副本数据手册 150 C/W，TI LM1117 61.6 C/W（JEDEC 板）。取舍：必须按你实际采购的 1117 厂商数据手册和实际铜面积算；拿不准时用较大值，并实测壳温。LDO 效率可近似为 Vout/Vin（再加静态电流项），5 V 转 3.3 V 最多约 66%。
+
+**来源**
+- [AMS1117 1A Low Dropout Voltage Regulator datasheet (SLKOR copy, SOT-223)](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Absolute Maximum Ratings; Thermal Protection
+- [LM1117 800-mA Low-Dropout Linear Regulator](https://www.ti.com/lit/ds/symlink/lm1117.pdf) — Texas Instruments, datasheet, §7.4 Thermal Information
+
+<a id="PWR-ARC-003"></a>
+#### PWR-ARC-003 · LDO 输入电压保持高于压差并留裕量
+`must` · 可信度 `high` · 适用: ldo, ams1117, input-protection · 标签: cat-feeder
+
+**规则** 在最低输入电压、最大负载电流和最高/最低温度下，应满足 Vin_min - Vout >= 数据手册最大压差 Vdo；Vin_min 要扣除连接器、线缆、PPTC 及其他串联电阻上的压降和电源容差。
+
+**依据** 压差不够时 LDO 退出稳压，输出随输入下降，MCU 在电机启动或线缆压降大时掉电复位。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `dropout_voltage_max_1A` | <= 1.4 V | AMS1117 副本数据手册：Iout=1 A 时压差典型 1.30 V，最大 1.40 V。电流越小压差越低，请按实际电流读曲线；LM1117 数据手册首页给出 800 mA 时 1.2 V。 |
+| `vin_min_minus_vout_nom` | >= 1.4 V | 按 1 A 满载的保守取值；5 V 轨若容差 -5% 并经 PPTC、连接器压降，则 3.3 V 输出下的裕量需要核算，不是默认满足。 |
+
+**验证**
+- `spice`（partial）· ngspice/LTspice，带电机启动/堵转负载的 5 V 源模型 — 5 V 源串入线缆电阻、PPTC 冷态/热态电阻（数据手册最大值）、TVS 漏电，扫描负载 0.05~1 A，取 LDO 输入电压最小值 Vin_min，要求 Vin_min - 3.3 V >= 对应电流的 Vdo(max)。
+- `bench`（manual）· 示波器 — 电机启动和堵转时同时测 LDO 的 VIN 和 VOUT，VOUT 不得跌落，VIN-VOUT 不得低于 Vdo。
+
+**来源**
+- [AMS1117 1A Low Dropout Voltage Regulator datasheet (SLKOR copy, SOT-223)](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Electrical Characteristics, Dropout voltage
+- [LM1117 800-mA Low-Dropout Linear Regulator](https://www.ti.com/lit/ds/symlink/lm1117.pdf) — Texas Instruments, datasheet, §9.2.3 Application Curve
+
+<a id="PWR-ARC-006"></a>
+#### PWR-ARC-006 · 3.3 V 栅极驱动选用逻辑电平 MOSFET
+`must` · 可信度 `high` · 适用: mosfet, motor-drive, gpio-drive · 标签: cat-feeder
+
+**规则** 由 3.3 V GPIO 直接驱动的功率 MOSFET，必须在数据手册中保证 Rds(on) 的测试条件 Vgs 不高于实际可得的栅极电压（如 2.5 V 或 3.3 V），不能只看 Vgs(th)。
+
+**依据** Vgs(th) 只是开始导通的门槛（测试电流 250 uA），不代表完全增强；若 Rds(on) 只在 10 V 下给出，3.3 V 驱动时阻值大幅升高，MOSFET 发热甚至烧毁。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `rds_on_spec_vgs_max` | <= 3.3 V | 需要数据手册在不高于栅极实际电压处保证 Rds(on)。AO3400A 在 Vgs=2.5 V、Id=3 A 时 Rds(on) 最大 48 mohm，Vgs(th) 0.65~1.45 V，Vgs 最大 ±12 V。 |
+
+**验证**
+- `bom_check`（partial）· 器件参数脚本 — 取驱动电平 Vdrive_min（如 GPIO VOH 最低值），查找数据手册中 Vgs<=Vdrive_min 的 Rds(on) 最大值 Rds_max；用 Id_max^2*Rds_max 估损耗并检查结温（见 PWR-ARC-007）。数据手册没有对应 Vgs 的 Rds(on) 则判不通过。
+- `spice`（partial）· ngspice，用厂商 MOSFET 模型 — 栅极电压设为 Vdrive_min，扫描漏极电流，读 Vds，换算 Rds(on)，与手册比较。
+
+**来源**
+- [AO3400A 30V N-Channel MOSFET datasheet (Alpha & Omega, Rev 3)](https://static.datasheets.com/doc/21789847-alpha-omega-ao3400a-ds.pdf) — Alpha & Omega Semiconductor, datasheet, Product Summary; Electrical Characteristics
+- [Gate drive for power MOSFETs in switching applications](https://www.infineon.com/dgdl/Infineon-Gate_drive_for_power_MOSFETs_in_switchtin_applications-ApplicationNotes-v01_00-EN.pdf?fileId=8ac78c8c80027ecd0180467c871b3622) — Infineon, app_note, gate input characteristics (logic-level devices)
+
+<a id="PWR-ARC-001"></a>
+#### PWR-ARC-001 · 3.3 V 主电源按模块峰值电流留足裕量
+`should` · 可信度 `high` · 适用: ldo, buck, esp32-c3, wifi-module · 标签: cat-feeder
+
+**规则** 给 ESP32-C3 这类 Wi-Fi 模块供电的 3.3 V 稳压器，输出能力不得低于 Espressif 推荐的 500 mA，并按 Wi-Fi 发射峰值而不是平均电流选型。
+
+**依据** 射频发射时电流突增，电源轨若跌落会导致掉电复位或射频性能变差；稳压器额定电流太小时，峰值期间会进入限流或热关断。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `rail_output_current_capability` | >= 500 mA | Espressif ESP32-C3 硬件设计指南 §1.3.2：单电源供电时推荐 3.3 V、输出电流不小于 500 mA。示例板原理图注释写的 Wi-Fi 峰值约 0.35 A，低于该推荐值，选型时应以 500 mA 为准。 |
+| `ldo_current_limit_ams1117` | >= 1 A | AMS1117 数据手册电流限制 1 A 量级，满足 500 mA，但散热见 PWR-ARC-002。 |
+
+**验证**
+- `bom_check`（partial）· BOM / 数据手册参数表检查脚本 — 读出 3.3 V 稳压器的额定输出电流 I_rated，与模块推荐电流 500 mA 比较，要求 I_rated >= 500 mA；同时检查稳压器输入侧上游器件（PPTC 保持电流、连接器额定电流）不小于 5 V 侧总电流。
+- `bench`（manual）· 示波器 + 电流探头 — 跑 Wi-Fi 连接和发射满功率，测 3.3 V 轨的最低电压，要求不低于模块下限 3.0 V，且无复位。
+
+**来源**
+- [ESP Hardware Design Guidelines - ESP32-C3, Power Supply](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.2 Power Supply
+
+<a id="PWR-ARC-004"></a>
+#### PWR-ARC-004 · 全陶瓷输出场合选「陶瓷稳定」型 LDO
+`should` · 可信度 `high` · 适用: ldo · 标签: cat-feeder
+
+**规则** 若输出电容打算只用 MLCC，选数据手册明确声明可用陶瓷输出电容、且给出最小电容的 LDO；依赖电解/钽电容 ESR 补偿的老式 LDO（如 1117 系列）不要直接配陶瓷。
+
+**依据** 老式 PNP/PMOS 调整管 LDO 靠输出电容 ESR 产生补偿零点；陶瓷 ESR 仅几 mΩ，零点跑到 3 MHz 以上，相位裕量不足会振荡。新型 LDO 把补偿零点做在片内。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `esr_stable_range_electrolytic_ldo` | 0.1 … 10 ohm | TI AN-1482：典型『电解稳定』LDO 的稳定 ESR 范围约 0.1~10 ohm（具体以所选型号稳定区曲线为准）。 |
+| `esr_max_ceramic_stable_ldo` | <= 0.5 ohm | TI AN-1482：片内加零点的『陶瓷稳定』LDO 下限可到 0 ohm，但 ESR 上限可能低至约 0.5 ohm，取决于负载电流与 Cout。 |
+
+**验证**
+- `bom_check`（partial）· 选型表脚本 — 对每个 LDO 记录数据手册的 Cout 类型/最小电容/ESR 窗口；输出电容实际 ESR（取 100 kHz~1 MHz 下的最小值）必须落在窗口内；窗口含 0 ohm 的才允许纯 MLCC。
+- `spice`（partial）· ngspice AC 分析，LDO 用厂商模型或宏模型 — 放入 Cout 及其 ESR(f)，看环路增益穿越频率处相位裕量 >= 45 度。
+
+**来源**
+- [AN-1482 LDO Regulator Stability Using Ceramic Output Capacitors](https://www.ti.com/lit/an/snva167a/snva167a.pdf) — Texas Instruments, app_note, §5-§6
+- [ESR, Stability, and the LDO Regulator (SLVA115A)](https://www.ti.com/lit/pdf/slva115) — Texas Instruments, app_note
+
+<a id="PWR-ARC-005"></a>
+#### PWR-ARC-005 · 降压电感按纹波比与峰值电流选型
+`should` · 可信度 `high` · 适用: buck
+
+**规则** 降压变换器电感取值使纹波电流约为最大输出电流的 20%~40%，并要求电感饱和电流和开关管/二极管额定电流大于 Iout_max + dIL/2。
+
+**依据** 纹波太小电感过大、动态慢；太大则峰值电流高、输出纹波大。电感饱和会使电流失控而烧管。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `inductor_ripple_ratio` | 0.2 … 0.4 dIL/Iout | TI SLVA477 对未选定电感时的纹波估计。 |
+| `inductor_isat_minimum` | >= 1 x (Iout_max + dIL/2) | SLVA477 式 (4)：此峰值电流是电感、开关管和外部二极管都必须承受的。 |
+
+**验证**
+- `bom_check`（full）· Python 脚本读 BOM 电感参数 — dIL=(Vin-Vout)*D/(L*fsw)；检查 Isat_min(温度降额后) >= Iout_max + dIL/2，且 dIL/Iout_max 位于 0.2~0.4。
+- `spice`（partial）· ngspice 瞬态 — 满载与启动时电感电流峰值不超过 Isat，且不触发限流。
+
+**来源**
+- [Basic Calculation of a Buck Converter's Power Stage (SLVA477)](https://www.ti.com/lit/pdf/slva477) — Texas Instruments, app_note, §2-§3
+
+<a id="PWR-ARC-007"></a>
+#### PWR-ARC-007 · 电机 MOSFET 按堵转电流核算导通损耗和结温
+`should` · 可信度 `high` · 适用: mosfet, motor-drive, sot-23 · 标签: cat-feeder
+
+**规则** 对电机低边/高边开关管，用堵转电流和实际驱动 Vgs 下、热态的 Rds(on) 计算 P=I^2*Rds(on)，再乘数据手册的 RthetaJA 校核 Tj<150 C；RthetaJA 要采用与你的实际铜面积相符的值。
+
+**依据** SOT-23 封装的数据手册电流值常基于 1 平方英寸 2 oz 铜的测试板，实际板上的稳态热阻更大；Rds(on) 随温度上升约 40%。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `rtheta_ja_steady_state_ao3400a` | <= 125 C/W | AO3400A 稳态最大 125 C/W、典型 100 C/W，测试条件为 1 in2 FR-4、2 oz 铜、静止空气；实际板铜面积更小时会更高。 |
+| `rds_on_hot_over_cold` | == 1.43 ratio | AO3400A 在 Vgs=10 V 下，Tj=125 C 最大 38 mohm 对 25 C 最大 26.5 mohm，即 38/26.5。 |
+| `tj_max_ao3400a` | <= 150 C | AO3400A 结温上限。 |
+
+**验证**
+- `bom_check`（full）· Python 计算脚本 — Tj=Ta_max+Istall^2*Rds_on(Vgs,Tj_hot)*RthetaJA；要求 Tj <= 150 C 并留出降额；同时检查 Istall 不超过数据手册连续漏极电流（AO3400A: 5.7 A@25 C，4.7 A@70 C，均为 1 in2 2 oz 铜）。
+- `thermal_sim`（partial）· 热阻网络 — 在 PCB 实际铜面积下修正 RthetaJA。
+
+**来源**
+- [AO3400A 30V N-Channel MOSFET datasheet (Alpha & Omega, Rev 3)](https://static.datasheets.com/doc/21789847-alpha-omega-ao3400a-ds.pdf) — Alpha & Omega Semiconductor, datasheet, Absolute Maximum Ratings; Thermal Characteristics notes A-F
+
+## 符号封装库（library）
+
+<a id="PWR-LIB-001"></a>
+#### PWR-LIB-001 · 1117 类 SOT-223 的散热 tab 必须接 VOUT
+`must` · 可信度 `high` · 适用: ldo, ams1117, lm1117, sot-223 · 标签: cat-feeder
+
+**规则** AMS1117/LM1117 的 SOT-223 封装中，散热 tab 与输出引脚内部相连，封装库里 tab 焊盘必须映射到 VOUT 网络（不是 GND），并给其足够的铜面积做散热。
+
+**依据** tab 与芯片壳体电连接到输出；误接到 GND 会短路输出。很多 SOT-23/SOT-223 通用符号把 tab 当作 GND 或 NC。
+
+**验证**
+- `netlist_diff`（full）· kicad-cli 导出网表 + Python 对比 — 找所有 1117 类器件，tab 焊盘(通常是第 4 号焊盘)的网络名必须等于该器件引脚 2 的网络名，否则报错。
+- `erc`（partial）· KiCad ERC + 符号库审阅 — 核对符号的引脚 2 / tab 同为 power output 类型，没有出现 tab 为 power input 或 GND。
+
+**来源**
+- [LM1117 Pin Functions table](https://www.ti.com/lit/ds/symlink/lm1117.pdf) — Texas Instruments, datasheet, §6 Table 6-1 (VOUT: 2, 4, TAB for SOT-223)
+- [AMS1117 datasheet - Thermal Consideration](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Thermal Consideration (case electrically connected to output)
+
+<a id="PWR-LIB-002"></a>
+#### PWR-LIB-002 · 四端子开尔文分流电阻封装要分开力端与感测端
+`should` · 可信度 `high` · 适用: shunt, current-sense, ina199 · 标签: cat-feeder
+
+**规则** 分流电阻（如 20 mohm 四端子 R10）的封装库必须把大电流焊盘和感测焊盘做成独立焊盘并映射到不同网络，感测焊盘只接电流检测放大器输入，不承载负载电流。
+
+**依据** 毫欧级分流电阻上，任何多出来的大电流路径电阻都会直接变成测量误差；TI 要求开尔文四线连接，使两个输入脚之间只检测到分流电阻本身的阻抗。
+
+**验证**
+- `netlist_diff`（full）· kicad-cli 网表 + Python — 分流电阻的两个感测焊盘网络只能出现在 INA199 的 IN+/IN- 以及少量滤波元件上，不允许连到负载电流所在的铜皮。
+- `review`（manual）· 封装库评审清单 — 检查封装焊盘形状：力端焊盘与感测焊盘之间不互连，感测焊盘靠近电阻本体。
+
+**来源**
+- [INA199 Voltage-Output, Current-Shunt Monitor](https://www.ti.com/lit/ds/symlink/ina199.pdf) — Texas Instruments, datasheet, §10.1 Layout Guidelines; §7.3.1 Basic Connections
+
+## 原理图（schematic）
+
+<a id="PWR-SCH-007"></a>
+#### PWR-SCH-007 · AMS1117 输出用满足 ESR 窗口的钽电容
+`must` · 可信度 `high` · 适用: ldo, ams1117, lm1117 · 标签: cat-feeder
+
+**规则** AMS1117/LM1117 类 LDO 的输出电容用 >=10 uF 钽电容（或等效的电解），ESR 须落在数据手册给定窗口内；AMS1117 数据手册要求 ESR 不超过 0.5 ohm，TI LM1117 要求 0.3~22 ohm；不要在不验证的情况下换成纯陶瓷。
+
+**依据** 这类 LDO 靠输出电容 ESR 提供补偿零点（10 uF 钽 ESR 约 0.5 ohm，零点约 30 kHz）；10 uF 陶瓷 ESR 仅 5 mohm，零点在 3 MHz 以上，相位裕量不足，输出会振荡。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `cout_min_tantalum` | >= 10 uF | AMS1117 与 LM1117 数据手册均写：输出至少 10 uF 钽电容。 |
+| `cout_esr_max_ams1117` | <= 0.5 ohm | AMS1117 数据手册 Output Capacitor 一节。 |
+| `cout_esr_range_lm1117` | 0.3 … 22 ohm | TI LM1117 §9.2.2.1.3。 |
+
+**验证**
+- `bom_check`（partial）· BOM 检查脚本 — 输出电容类型为钽/聚合物时读其 100 kHz 下 ESR，要求落在 [0.3, 0.5] ohm（两份数据手册窗口的交集）；若为纯 MLCC，判不通过并要求加串联电阻或改型号。
+- `spice`（partial）· ngspice AC / 阶跃负载 — 在输出端用 ESR(f) 模型的 Cout，做 10%~90% 负载阶跃，输出过冲/振铃衰减在 3 个周期内；AC 相位裕量 >= 45 度。
+- `bench`（manual）· 示波器 + MOSFET 开关负载阶跃 — 按 TI SLVA115A 的阶跃负载方法（MOSFET 开关 + 函数发生器）观察输出振铃。
+
+**来源分歧** 两份数据手册说法不同：AMS1117 只给 ESR 上限 0.5 ohm（不给下限），LM1117 给 0.3~22 ohm；另有第三方博客声称 AMS1117 要求 0.3~22 ohm（未能核实到厂商原文）。取舍：按交集 0.3~0.5 ohm 选型最稳妥，再用阶跃负载实测；实际采购的『1117』克隆厂商版本之间差异大，务必看自己那一版数据手册。也有人在不加补偿时用陶瓷电容勉强工作，但属于不可靠的边际条件，不收为通过判据。
+
+**来源**
+- [AMS1117 datasheet (SLKOR copy) - Output Capacitor](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Application Information, Output Capacitor
+- [LM1117 800-mA Low-Dropout Linear Regulator](https://www.ti.com/lit/ds/symlink/lm1117.pdf) — Texas Instruments, datasheet, §9.2.2.1.3 Output Capacitor
+- [AN-1482 LDO Regulator Stability Using Ceramic Output Capacitors](https://www.ti.com/lit/an/snva167a/snva167a.pdf) — Texas Instruments, app_note, §5-§6
+
+<a id="PWR-SCH-012"></a>
+#### PWR-SCH-012 · 电机两端并联续流二极管并核算额定值
+`must` · 可信度 `medium` · 适用: motor-drive, brushed-dc-motor, low-side-switch, mosfet · 标签: cat-feeder
+
+**规则** 单管开关的有刷直流电机必须在电机绕组两端反并联一个续流（flyback）二极管，阴极接电机正端；二极管的平均电流额定不低于电机堵转电流，反向耐压高于电源并留余量，并在布局上靠近电机接线端子。
+
+**依据** 关断时电机电感电流不能突变，没有续流路径时漏极电压会飙升并迫使 MOSFET 雪崩；MOSFET 体二极管不在这个方向上起保护作用，且额定值有限（AO3400A 体二极管连续电流仅 2 A）。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `ao3400a_body_diode_current_max` | <= 2 A | AO3400A 数据手册：体二极管最大连续电流 IS 2 A，Vsd 最大 1 V。 |
+
+**验证**
+- `netlist_diff`（full）· kicad-cli 网表 + Python — 对每个驱动电感性负载的 MOSFET，其漏极网络上必须存在一个二极管，阳极接漏极网络、阴极接电机正电源网络；缺失则报错。
+- `geometry_script`（partial）· pcbnew Python — 测二极管焊盘到电机接线端子焊盘的距离，要求短于二极管到 MOSFET 的距离（来源未给数值，仅为方向性要求）。
+- `spice`（partial）· ngspice 瞬态，电机用 R-L-反电势模型 — 堵转电流下关断，读漏极峰值电压，要求小于 MOSFET VDS 绝对最大额定值（AO3400A 为 30 V）并留余量。
+
+**来源**
+- [AO3400A 30V N-Channel MOSFET datasheet (Alpha & Omega, Rev 3)](https://static.datasheets.com/doc/21789847-alpha-omega-ao3400a-ds.pdf) — Alpha & Omega Semiconductor, datasheet, Electrical Characteristics (IS, VSD)
+- [Gate drive for power MOSFETs in switching applications (freewheeling rectifier in inductive-load switching)](https://www.infineon.com/dgdl/Infineon-Gate_drive_for_power_MOSFETs_in_switchtin_applications-ApplicationNotes-v01_00-EN.pdf?fileId=8ac78c8c80027ecd0180467c871b3622) — Infineon, app_note, Gate input characteristics, Figure 9
+- [Flyback Diode: Protecting Relay and Motor Driver Circuits (搜索结果所见，未深读)](https://zbotic.in/flyback-diode-protecting-relay-and-motor-driver-circuits/) — Zbotic, blog
+- [Back EMF protection diodes with inductive loads (搜索结果所见，未深读)](https://picaxeforum.co.uk/threads/back-emf-protection-diodes-with-inductive-loads.23155/) — PICAXE forum, forum
+
+<a id="PWR-SCH-001"></a>
+#### PWR-SCH-001 · 保险丝（PPTC）放在 TVS 上游
+`should` · 可信度 `medium` · 适用: power-entry, tvs, pptc, fuse · 标签: cat-feeder
+
+**规则** 电源入口按「连接器 -> （反接保护）-> 保险丝/PPTC -> TVS 并联到地 -> 后级」排列，TVS 放在保险丝之后，使 TVS 短路失效时保险丝能把电路断开。
+
+**依据** TVS 过载通常先失效为短路，若无串联保险丝，电源会持续灌电流进入已短路的 TVS，可能起火；保险丝也提供串联电感，让 TVS 夹住保险丝/导线电感释放的反冲电压。
+
+**验证**
+- `review`（partial）· 原理图评审清单 — 沿电源入口画出网络顺序，确认 TVS 的阳极接地、阴极接在保险丝之后；保险丝额定 I2t 小于 TVS 的耐受能力；PPTC 的 Vmax/Imax 大于电路最大电压和最大故障电流。
+- `spice`（partial）· ngspice 瞬态 — 仿真 TVS 短路故障：电源内阻 + 线缆电阻下，保险丝/PPTC 应在规定时间内断开，TVS 平均功耗不超过额定。
+
+**来源分歧** 来源分歧：Vishay 与 TI SSZT363 把保险丝/串联电感放在 TVS 之前（保险丝上游，TVS 在其后）；另有 TI E2E 放大器论坛一个回帖（搜索摘要所见，未能打开原文）给出『连接器 -> TVS -> 电子保险丝 -> EMI 滤波』的顺序，其理由是 ESD/快速瞬态要在连接器处就被钳位。取舍：电源电压轨的浪涌+持续过流场景，保险丝在前（Vishay 为厂商应用笔记，且逻辑自洽：TVS 短路失效必须被保险丝清除）；信号线 ESD 才把 TVS 放最靠近连接器。若两者都需要，可在连接器处加小型 ESD 二极管，再接保险丝、再接大功率 TVS。
+
+**来源**
+- [Failure Modes and Fusing of TVS Devices (App Note 88440)](https://www.vishay.com/docs/88440/failurem.pdf) — Vishay General Semiconductor, app_note, Fig. 2 Fuse location relative to TVS device
+- [Selecting TVS Diodes in Hot-swap and ORing Applications](https://www.ti.com/lit/pdf/sszt363) — Texas Instruments, app_note, TVS placement after series inductance such as a fuse
+- [TPD1E6B06: Placement of TVS Diode and Fuse with ISO1044 (E2E, 未能打开原文，仅见搜索摘要)](https://e2e.ti.com/support/interface-group/interface/f/interface-forum/1433757/tpd1e6b06-placement-of-tvs-diode-and-fuse-with-iso1044) — TI E2E, forum
+
+<a id="PWR-SCH-002"></a>
+#### PWR-SCH-002 · 提供真正串联的反接保护，并核算反接时的应力
+`should` · 可信度 `medium` · 适用: power-entry, reverse-polarity, tvs, pptc · 标签: cat-feeder
+
+**规则** 对用户可能接反的 DC 输入，在保险丝之后优先用串联元件阻断反向（肖特基二极管、高边 P-MOSFET 或理想二极管控制器）；若只靠并联 TVS 反向导通加保险丝熔断来「保护」，必须核算 TVS 正向浪涌能力和保险丝的断开时间。
+
+**依据** 串联二极管/P-FET 能让负电压根本进不到后级；并联方案要靠大电流熔断保险丝，期间 TVS 与走线承受大电流，PPTC 还要靠自热翻转，时间长。肖特基反向漏电随结温剧增，P-FET 本身不阻断反向电流。
+
+**验证**
+- `spice`（partial）· ngspice 瞬态 — 在输入加 -Vin，电源内阻按实际适配器输出能力建模，读 TVS 正向电流和 PPTC 翻转时间；要求 TVS 的正向非重复峰值电流额定（数据手册 IFSM）大于仿真峰值，且后级节点反向电压不超过其绝对最大负压。
+- `bench`（manual）· 限流可调电源 — 用限流电源反接，逐步提高限流，读后级节点电压和元件温度，确认无损坏。
+- `review`（manual）· 原理图评审 — P-FET 方案须核对：体二极管方向与正常电流方向相同、Vgs 不超过 FET 最大 Vgs（必要时加稳压管钳位）。
+
+**来源**
+- [Reverse Current/Battery Protection Circuits (SLVA139)](https://www.ti.com/lit/an/slva139/slva139.pdf) — Texas Instruments, app_note
+- [Basics of Ideal Diodes (SLVAE57B)](https://www.ti.com/lit/an/slvae57b/slvae57b.pdf) — Texas Instruments, app_note, §2 Schottky; §4 P-channel MOSFET; §5 Reverse polarity vs reverse current blocking
+- [Failure Modes and Fusing of TVS Devices (App Note 88440)](https://www.vishay.com/docs/88440/failurem.pdf) — Vishay General Semiconductor, app_note
+
+<a id="PWR-SCH-003"></a>
+#### PWR-SCH-003 · PPTC 按最高环境温度下的保持电流选型
+`should` · 可信度 `medium` · 适用: pptc, power-entry · 标签: cat-feeder
+
+**规则** 选 PPTC 时用最高工作温度的热降额曲线，使 Ihold(Tmax) 不低于正常工作电流（含电机启动/Wi-Fi 峰值的有效值），并确认器件 Vmax、Imax 高于电路最高电压和最大故障电流；最后在实机上试验。
+
+**依据** PPTC 的保持电流随温度下降，热态时可能在正常峰值负载下误翻转；而它还会在回路中引入电阻和压降，影响 LDO 压差裕量。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `trip_test_multiple` | == 5 x Ihold | Bourns 数据手册的 Time to Trip 在 5 倍 Ihold、Vmax、23 C 下规定；翻转时间随故障电流变化，需查所选型号曲线。 |
+
+**验证**
+- `bom_check`（partial）· Python 读 BOM + PPTC 降额表 — 取 Tmax_ambient 对应的降额后 Ihold，要求 >= 1.2 倍的持续最大电流（1.2 为工程余量，非来源数值）；检查 Vmax >= 最高电源电压、Imax >= 电源最大短路电流。
+- `bench`（manual）· 恒温箱 + 电流记录 — 在最高环境温度下运行最重负载序列（电机启动、堵转 N 秒、Wi-Fi 发射）30 min，PPTC 不得翻转；另做堵转测试确认其在预期时间内翻转。
+
+**来源**
+- [Multifuse PTC Resettable Fuses Solutions Guide, Product Selection Worksheet](https://www.bourns.com/pdfs/mfsolgd.pdf) — Bourns, vendor_guide, Multifuse Product Selection Worksheet, steps 1-8
+
+<a id="PWR-SCH-004"></a>
+#### PWR-SCH-004 · TVS 按击穿电压、钳位电压、峰值电流三条选型
+`should` · 可信度 `high` · 适用: tvs, power-entry · 标签: cat-feeder
+
+**规则** 电源轨 TVS 须同时满足：反向击穿电压 VBR 大于该轨最高工作电压；钳位电压 VC（在峰值脉冲电流下）低于后级所有器件的绝对最大额定值；峰值脉冲电流额定 IPP 大于预期浪涌电流。
+
+**依据** VBR 太低会在正常波动时漏电发热；VC 过高保护不了后级；IPP 不足时 TVS 先于被保护器件失效。
+
+**验证**
+- `bom_check`（full）· Python 读 BOM 的 TVS 参数 + 后级绝对最大额定值表 — 三条判据逐项比较：VBR_min > Vrail_max；VC_max@IPP < min(后级 Abs Max Vin)；IPP > 预期峰值电流。
+- `spice`（partial）· ngspice，TVS 用分段模型 — 在输入叠加预期浪涌波形，读后级节点电压最大值，要求低于后级绝对最大电压。
+
+**来源**
+- [Selecting TVS Diodes in Hot-swap and ORing Applications](https://www.ti.com/lit/pdf/sszt363) — Texas Instruments, app_note, How do you choose a TVS diode?
+- [Failure Modes and Fusing of TVS Devices (App Note 88440)](https://www.vishay.com/docs/88440/failurem.pdf) — Vishay General Semiconductor, app_note, threat levels defined by peak current and waveform
+
+<a id="PWR-SCH-005"></a>
+#### PWR-SCH-005 · 线缆热插拔的输入端抑制陶瓷电容谐振过冲
+`should` · 可信度 `medium` · 适用: power-entry, hot-plug, mlcc, buck, ldo · 标签: cat-feeder
+
+**规则** 通过线缆/连接器热插拔带电电源时，若输入端只有低 ESR 陶瓷电容，需并联带 ESR 的大电容（电解/聚合物/钽），或给陶瓷电容串联小电阻，以阻尼电缆电感与陶瓷电容形成的 LC 谐振。
+
+**依据** 线缆电感与陶瓷输入电容构成低阻尼谐振，插入瞬间输入电压可冲到约 2 倍电源电压，超过稳压器绝对最大额定值；高 ESR 电容提供阻尼。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `hotplug_overshoot_ratio_worst` | <= 2 x Vsupply | ADI 对 AN88 的概述（搜索摘要）：输入引脚电压可振铃到约 2 倍标称输入电压；未能打开 AN88 原文，量级需自行用仿真确认。 |
+
+**验证**
+- `spice`（partial）· ngspice 瞬态 — 电源阶跃叠加线缆电感 0.5~2 uH 与 ESR 参数、输入陶瓷电容，读输入节点电压峰值，要求不超过稳压器 Vin 绝对最大额定值的 90%。
+- `bench`（manual）· 示波器 + 带电插拔 — 用已上电的适配器反复热插入，捕获输入引脚上的最大电压，要求低于器件绝对最大额定值并留出余量。
+
+**来源**
+- [AN88 Ceramic Input Capacitors Can Cause Overvoltage Transients (未能打开原文，据搜索结果摘要)](https://www.analog.com/media/en/technical-documentation/application-notes/an88f.pdf) — Analog Devices (Linear Technology), app_note
+- [Buck Converter - application guide (input LC filter damping)](https://www.we-online.com/en/components/applicationguide/buck_converter) — Wurth Elektronik, vendor_guide, Input filter / damping with high-ESR electrolytic
+
+<a id="PWR-SCH-006"></a>
+#### PWR-SCH-006 · 陶瓷电容按直流偏置、温度、公差降额后再核算
+`should` · 可信度 `high` · 适用: mlcc, ldo, buck, boost · 标签: cat-feeder
+
+**规则** 任何依赖电容值的功能（LDO/降压输出和输入电容、保持电容）都要用有效电容值：由厂商直流偏置曲线、温度特性和公差逐项降额后，仍满足最小电容要求；介质用 X5R 或更好。
+
+**依据** 铁电陶瓷的电容随直流电压下降，案例中 10 uF/0603/X7R 在偏置下只剩约 7 uF，再经高温和 ±20% 公差只剩约 3.5 uF；大封装降额更小。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `capacitance_tolerance_assumed` | == 20 % | TI SSZT654 用 ±20% 公差做例子；TI SLYT670 用 10% 公差。以所选型号的实际公差为准。 |
+| `dielectric_minimum` | qualitative | TI SLVA477：介质须为 X5R 或更好，否则偏置和温度下损失过大。 |
+
+**验证**
+- `bom_check`（partial）· Python 读 BOM + 厂商直流偏置数据 — 对每个对电容有下限要求的位置：C_eff = C_nom * f_bias(Vdc, 封装) * f_temp(Tmax) * (1 - tol)；要求 C_eff >= 稳压器数据手册的最小电容（或环路需要的值）。无偏置数据则按 C_eff <= 50% C_nom 保守处理。
+- `spice`（partial）· ngspice，.step 电容值 — 把电容设为 C_eff 的最坏值，复跑环路增益与负载阶跃，见 PWR-VER-001。
+
+**来源**
+- [LDO Basics: Capacitor vs. Capacitance (SSZT654)](https://www.ti.com/lit/pdf/sszt654) — Texas Instruments, vendor_guide
+- [Ceramic or electrolytic output capacitors in DC/DC converters - Why not both? (SLYT639)](https://www.ti.com/lit/an/slyt639/slyt639.pdf) — Texas Instruments, app_note
+- [How to select input capacitors for a buck converter (SLYT670)](https://www.ti.com/lit/an/slyt670/slyt670.pdf) — Texas Instruments, app_note
+- [Basic Calculation of a Buck Converter's Power Stage (SLVA477)](https://www.ti.com/lit/pdf/slva477) — Texas Instruments, app_note, §6-§7
+
+<a id="PWR-SCH-008"></a>
+#### PWR-SCH-008 · 限制 LDO 输出端并联的小陶瓷旁路电容
+`should` · 可信度 `high` · 适用: ldo, ams1117, decoupling · 标签: cat-feeder
+
+**规则** 对依赖 ESR 补偿的老式 LDO，输出节点附近不要堆放大量 0.01~0.1 uF 陶瓷旁路电容；各芯片 VCC 去耦应离 LDO 输出足够远，或经串联电感/磁珠隔离，并在整板装好后用负载阶跃验证。
+
+**依据** 并联在大钽电容旁的小陶瓷电容并不会被「淹没」，它和输出阻抗形成新的极点：TI 例中十个 0.1 uF（共 1 uF）使极点落在 370 kHz，相位裕量从 68 度掉到约 9 度。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `problematic_bypass_cap_range` | 0.01 … 0.1 uF | TI AN-1482 §8：此范围的陶瓷电容最容易出问题。 |
+| `example_total_ceramic_pole` | == 370 kHz | AN-1482 式 (10)：ROUT=0.43 ohm、C=1 uF 时的附加极点；该例子使相位裕量 68 度降为约 9 度。 |
+
+**验证**
+- `spice`（partial）· ngspice AC — LDO 输出节点接 Cout(含 ESR) 和全部陶瓷旁路电容总和（含各自走线电感 5~20 nH），读穿越频率处相位裕量，要求 >= 45 度。
+- `bench`（manual）· 示波器 + 阶跃负载 — AN-1482 §8 方法：装好所有电容、拆掉被供电 IC，用等效电阻做 0->额定负载阶跃，输出若有明显振铃说明相位裕量低。
+
+**来源**
+- [AN-1482 LDO Regulator Stability Using Ceramic Output Capacitors](https://www.ti.com/lit/an/snva167a/snva167a.pdf) — Texas Instruments, app_note, §7-§8
+
+<a id="PWR-SCH-009"></a>
+#### PWR-SCH-009 · 降压输出电容按有效电容和穿越频率阻抗核算
+`should` · 可信度 `high` · 适用: buck, boost
+
+**规则** 降压输出电容总量要满足纹波 dVout≈dIL*Zout(fsw) 和负载阶跃过冲 dV≈dIout*Zout(fc)，其中陶瓷电容用降额后的有效值；若混用电解/聚合物与陶瓷，要重新核对环路补偿。
+
+**依据** 陶瓷在偏置下常只剩不到一半的标称电容；输出电容的阻抗在环路穿越频率处决定了负载阶跃的过冲/下冲，而其 ESR 与容值也影响环路零极点。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `crossover_over_fsw` | 0.1 … 0.2 fc/fsw | TI SLYT639：穿越频率通常设为开关频率的 1/10；TI 补偿文章为 1/5~1/10。 |
+
+**验证**
+- `spice`（partial）· ngspice 瞬态 + AC — 用 C_eff 与 ESR 扫描负载阶跃，读 Vout 过冲/下冲和稳态纹波，要求在系统允许的 dV 以内，并保持环路相位裕量。
+- `bom_check`（full）· Python 计算 — 按数据手册推荐的最小/最大输出电容范围核对 C_eff(降额后) 落入范围，内补偿芯片尤其要用推荐的 L、C 组合。
+
+**来源**
+- [Ceramic or electrolytic output capacitors in DC/DC converters - Why not both? (SLYT639)](https://www.ti.com/lit/an/slyt639/slyt639.pdf) — Texas Instruments, app_note, Eq. 1-2 and surrounding text
+- [Basic Calculation of a Buck Converter's Power Stage (SLVA477)](https://www.ti.com/lit/pdf/slva477) — Texas Instruments, app_note, §7 Output Capacitor Selection
+
+<a id="PWR-SCH-010"></a>
+#### PWR-SCH-010 · 降压输入电容核算纹波有效值并并联高频旁路电容
+`should` · 可信度 `medium` · 适用: buck
+
+**规则** 降压输入端除满足数据手册最小输入电容外，要用最坏占空比核算输入纹波电流有效值（约 Iout*sqrt(D*(1-D))，D=0.5 时最大）不超过陶瓷电容的纹波电流额定，并并联 0.1~0.47 uF 的 X5R/X7R 高频旁路电容。
+
+**依据** 降压变换器的输入电流是脉动的，输入电容要提供其交流分量；大容量电容高频特性差，快沿电流主要靠小电容。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `hf_bypass_capacitance` | 0.1 … 0.47 uF | TI AN-1229 与 ROHM 60AN066E：X5R/X7R 贴片陶瓷。 |
+
+**验证**
+- `bom_check`（full）· Python 计算 — I_in_rms = Iout*sqrt(D*(1-D)) 在 Vin_max、Vin_min 两端取最大，对比所选电容在 fsw 下的额定纹波电流（按并联个数和降额）；同时用偏置曲线核有效电容。
+- `spice`（partial）· ngspice — 满载稳态仿真，读输入电容电流有效值和输入电压纹波。
+
+**来源**
+- [How to select input capacitors for a buck converter (SLYT670)](https://www.ti.com/lit/an/slyt670/slyt670.pdf) — Texas Instruments, app_note
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3 Placing of input capacitor and free-wheel diode
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §4
+
+<a id="PWR-SCH-011"></a>
+#### PWR-SCH-011 · 电机 MOSFET 栅极加下拉电阻和串联电阻
+`should` · 可信度 `high` · 适用: mosfet, motor-drive, gpio-drive · 标签: cat-feeder
+
+**规则** 由 MCU GPIO 驱动的电机 MOSFET，在栅极到源极间并联约 10 kohm 下拉电阻，使 GPIO 高阻（复位/启动阶段）时管子保持关断；栅极串联电阻按栅极回路阻尼选取，从 0 ohm 起加到振铃消失。
+
+**依据** 栅极悬空时 MOSFET 可能保持导通，电机在复位期间意外转动；栅极回路的寄生电感与 Ciss 谐振，需要串联电阻使品质因数 Q 落在 0.5~1。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `gate_source_pulldown` | == 10 kohm | Infineon 栅极驱动应用笔记：kΩ 级，典型 10 kΩ，强烈建议。 |
+| `gate_loop_q_target` | 0.5 … 1 Q | TI SLLA385：选择 RG 使 Q 在 0.5（临界阻尼）到 1（欠阻尼）之间；Q 越大开关越快。AO3400A 内部栅极电阻 Rg 典型 3 ohm、Ciss 典型 630 pF。 |
+
+**验证**
+- `erc`（full）· KiCad ERC + 自定义检查 — 每个功率 MOSFET 的栅极网络都必须有到源极的下拉电阻，阻值在 4.7~100 kohm（来源只给 10 kohm 典型，范围为工程判断）。
+- `spice`（partial）· ngspice 瞬态，含栅极回路电感 5~20 nH — GPIO 阶跃驱动，读 Vgs 过冲，要求不超过 MOSFET 绝对最大 Vgs（AO3400A 为 ±12 V），且无多次开关式振荡。
+- `bench`（manual）· 示波器 — 复位和上电时观察栅极电压和电机端电压，确认复位期间管子保持关断。
+
+**来源**
+- [Gate drive for power MOSFETs in switching applications](https://www.infineon.com/dgdl/Infineon-Gate_drive_for_power_MOSFETs_in_switchtin_applications-ApplicationNotes-v01_00-EN.pdf?fileId=8ac78c8c80027ecd0180467c871b3622) — Infineon, app_note, gate drive circuit (RG and RGS)
+- [External Gate Resistor Design Guide for Gate Drivers (SLLA385)](https://www.ti.com/lit/pdf/slla385) — Texas Instruments, app_note
+- [EiceDRIVER Gate resistor for power devices](https://www.infineon.com/assets/row/public/documents/24/42/infineon-eicedriver-gate-resistor-for-power-devices-applicationnotes-en.pdf) — Infineon, app_note, §3.4 Gate ringing
+
+<a id="PWR-SCH-013"></a>
+#### PWR-SCH-013 · 有刷电机接线端并联 0.1 uF 陶瓷电容
+`should` · 可信度 `medium` · 适用: motor-drive, brushed-dc-motor · 标签: cat-feeder
+
+**规则** 有刷直流电机的两个接线端之间并联 1 个 0.1 uF 非极性陶瓷电容，必要时再从每个端子到电机外壳各加一个，电容就近焊在电机外壳处。
+
+**依据** 电刷弹跳与绕组电感会在电源线上产生大量噪声，并能耦合进邻近信号线，使电源电压凹陷导致 MCU 复位；电容就地吸收这些宽带噪声。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `motor_terminal_capacitance` | == 0.1 uF | Pololu：一到三个 0.1 uF 陶瓷电容；正反转电机不能用有极性电容。 |
+| `motor_cap_count` | 1 … 3 pcs | 1 个跨端子；2 个各端子对外壳；3 个全部（噪声抑制最好）。 |
+
+**验证**
+- `review`（partial）· 原理图/板级评审 — 电机接线端子旁(或电机外壳上)有跨端子的 0.1 uF 非极性电容；电容额定电压高于电源电压并留余量(来源未给倍数)。
+- `emc_precompliance`（manual）· 近场探头 + 示波器 — 电机运行时测 3.3 V 轨和 ADC/HX711 输入上的电刷噪声，加/不加电容对比；若 0.1 uF 效果不足，可试更大的容值（论坛上见到过 0.68 uF 的有效案例，未经证实）。
+
+**来源**
+- [Dealing with Motor Noise (Application Note: Using the Motor Driver on the 3pi Robot and Orangutan Robot Controllers)](https://www.pololu.com/docs/0J15/9) — Pololu, vendor_guide, §9 Dealing with Motor Noise
+
+<a id="PWR-SCH-014"></a>
+#### PWR-SCH-014 · 上电复位时序：电源稳定后再使能，慢速斜坡加监控芯片
+`should` · 可信度 `high` · 适用: esp32-c3, power-sequencing, brown-out · 标签: cat-feeder
+
+**规则** ESP32-C3 的 CHIP_EN 必须在 3.3 V 轨稳定至少 50 us 之后才拉高，不可悬空；用 RC 延时（典型 R=10 kohm，C=1 uF）保证时序，电源上升慢、反复通断或不稳定时，加阈值约 3.0 V 的电压监控芯片。
+
+**依据** 电源轨未稳定就使能会引起启动失败或 Flash 擦写失败；PPTC、长线缆和电机启动造成的电源波动都可能让 RC 延时电路不足。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `t_stbl_min` | >= 50 us | Espressif 表：电源稳定到 CHIP_EN 拉高的最小时间。 |
+| `t_rst_min` | >= 50 us | CHIP_EN 保持低电平复位的最小时间。 |
+| `chip_en_rc` | qualitative | R=10 kohm、C=1 uF 为典型值，需按实际电源上升/下降特性调整。 |
+| `supervisor_threshold` | == 3.0 V | 监控芯片阈值推荐约 3.0 V。 |
+
+**验证**
+- `spice`（full）· ngspice 瞬态，含 PPTC、LDO 软启动和 RC — 仿真上电斜坡(含慢斜坡 10 ms~100 ms)，读 3.3 V 轨达到 3.0 V 的时刻与 CHIP_EN 越过 VIH 的时刻，要求 CHIP_EN 晚至少 50 us 且 3.3 V 此后不再低于 3.0 V。
+- `bench`（manual）· 示波器双通道 — 重复上电/掉电和电机堵转扰动，观察 3.3 V 与 CHIP_EN，确认无欠压下的误启动。
+
+**来源**
+- [ESP Hardware Design Guidelines - ESP32-C3, Chip Power-up and Reset Timing](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.3
+
+<a id="PWR-SCH-015"></a>
+#### PWR-SCH-015 · 电源上的磁珠/LC 滤波器按偏置降额并阻尼
+`should` · 可信度 `medium` · 适用: ferrite-bead, lc-filter, pdn, esp32-c3 · 标签: cat-feeder
+
+**规则** 在电源轨上串磁珠或电感做滤波时，直流偏置电流不得超过额定电流的约 30%~40%，核对偏置下的阻抗曲线；磁珠与后级电容的 LC 谐振要加阻尼，且不要放在大阶跃负载（如 Wi-Fi 发射）的供电路径上而不核算压降。ESP32-C3 的 VDD3P3 LC 滤波电感额定电流宜在 500 mA 以上。
+
+**依据** 磁珠饱和后电感下降 50% 以上、阻抗减半；磁珠与电容形成高 Q 谐振，在谐振点附近反而放大噪声，若恰在开关频率附近更糟。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `bead_bias_fraction_of_rated` | <= 0.4 fraction | Weir：直流偏置超过额定电流的 30%~40% 时，等效电感可下降 50% 以上；越靠近额定电流阻抗越低（Renesas AN-805 也提到阻抗可减半）。 |
+| `lc_filter_inductor_rated_current` | >= 500 mA | Espressif：VDD3P3 的 LC 电路，电感额定电流最好 500 mA 以上。 |
+| `dominant_pole_damping_cap_ratio` | == 5 x C | Weir：用 CDP = 5C 的阻尼电容(串联电阻 RDP)形成主极点，通常是好的折中。 |
+
+**验证**
+- `spice`（partial）· ngspice AC，磁珠用偏置下实测或手册阻抗数据建模 — 扫频读磁珠+电容滤波器的插入增益，谐振点附近的峰值须小于 3 dB(来源未给通过值，仅要求无明显放大)，并核对谐振点远离开关频率。
+- `bom_check`（full）· Python 计算 — I_dc_load / I_rated <= 0.4；DCR 引起的压降使 3.3 V 轨最低值仍满足模块下限。
+
+**来源**
+- [PDN Application of Ferrite Beads (Steve Weir)](https://emcfastpass.com/wp-content/uploads/2017/04/PDN_Ferrite_Beads.pdf) — IPBLOX (DesignCon-style slides), paper
+- [AN-805 Recommended Ferrite Beads](https://www.renesas.com/en/document/apn/805-recommended-ferrite-beads) — Renesas, app_note
+- [ESP Hardware Design Guidelines - ESP32-C3, Analog Power Supply](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.2
+- [AN-1368 Ferrite Bead Demystified (未能打开原文，据搜索摘要：磁珠+电容谐振峰值约 10-15 dB)](https://www.analog.com/en/resources/app-notes/an-1368.html) — Analog Devices, app_note
+
+<a id="PWR-SCH-016"></a>
+#### PWR-SCH-016 · 反馈分压与基准容差下的输出电压最坏情况
+`should` · 可信度 `medium` · 适用: ldo, buck, boost, adjustable-regulator · 标签: cat-feeder
+
+**规则** 对可调稳压器按 Vout=Vref*(1+R2/R1)+Iadj*R2，用基准容差、电阻容差(建议 1% 或更好)、Iadj 与线性/负载调整率做最坏情况或蒙特卡洛计算，输出必须落在负载允许的电压范围内；固定输出型号则直接用数据手册的输出容差。
+
+**依据** 3.3 V 轨容差叠加后若越出 MCU 的 3.0~3.6 V 范围，会造成欠压复位或器件损伤；分压电阻容差和基准容差直接乘到输出。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `ams1117_vref_tolerance` | == 2 % | AMS1117 数据手册：基准/输出电压 ±2%；3.3 V 固定版 3.234~3.366 V(Vin=Vout+2 V、10 mA~1 A、25 C)。 |
+| `ams1117_load_regulation_max` | <= 0.5 % | 同上数据手册：Vin-Vout=2 V、10 mA~1 A 下负载调整率最大 0.5%，线性调整率最大 0.3%。 |
+| `esp32c3_vdd_range` | 3.0 … 3.6 V | Espressif：VDD3P3_CPU 等数字电源 3.0 V~3.6 V。 |
+
+**验证**
+- `spice`（full）· ngspice .step / Monte Carlo — 对 Vref、R1、R2 取容差极值或蒙特卡洛 1000 次，读 Vout 的最小/最大，要求落在 [3.0, 3.6] V 内并留一定余量。
+- `bom_check`（full）· Python 计算 — 固定输出：Vout_min=Vnom*(1-tol-load_reg-line_reg) 与 Vout_max 对比负载限值。
+
+**来源**
+- [AMS1117 datasheet (SLKOR copy) - Electrical Characteristics](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Electrical Characteristics; Output voltage adjustment
+- [ESP Hardware Design Guidelines - ESP32-C3, Digital Power Supply](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.2
+
+## 叠层与规则（stackup）
+
+<a id="PWR-STK-001"></a>
+#### PWR-STK-001 · 按电流选外层铜厚并确认板厂实际铜厚
+`consider` · 可信度 `medium` · 适用: two-layer, high-current, motor-drive · 标签: cat-feeder
+
+**规则** 电流较大的双层板按电流和可用走线宽度选择外层铜厚（1 oz 或 2 oz），2 oz 约使所需线宽减半；同时向板厂确认成品铜厚（含孔镀铜后外层有效铜厚会增大）。
+
+**依据** 外层 1 oz 铜经过孔金属化后实际更接近 1.4 oz；铜越厚，同一线宽载流越大，但最小线宽/线距受工艺限制。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `copper_weight_width_ratio_2oz_vs_1oz` | == 0.5 ratio | AN-1229：2 oz 板所需线宽恰为 1 oz 的一半；ROHM：2 oz 为 0.7 mm/A、1 oz 为 1 mm/A，比值 0.7。 |
+
+**验证**
+- `review`（manual）· 与板厂确认叠层与成品铜厚；PCB 订单检查 — 订单上的铜厚规格与 PWR-RTE-005 核算时所用铜厚一致；若按 1 oz 核算过，不得被改成 0.5 oz。
+- `tline_calc`（partial）· IPC-2152 计算器 — 用成品铜厚重算最窄功率走线温升。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §6.1
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §5 and Figure 5
+
+## 分区规划（floorplan）
+
+<a id="PWR-FLR-001"></a>
+#### PWR-FLR-001 · 电机/开关电源功率区与模拟、射频区分区
+`should` · 可信度 `medium` · 适用: motor-drive, buck, boost, mixed-signal · 标签: cat-feeder
+
+**规则** 把电机驱动（MOSFET、续流二极管、分流电阻、电机接线端子）和开关变换器集中在板上一个功率区，远离 HX711/ADC 等模拟前端和天线区；功率区的开关电流回路和电机引线不得穿过模拟区下方或旁边。
+
+**依据** 电机引线和开关节点会把噪声感应到邻近信号线，Pololu 实测在一台噪声电机附近的独立电路里感应出高达 20 V 的尖峰；开关电流回路必须与安静走线隔开。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `induced_spike_observed` | qualitative | Pololu 观测到电机附近独立电路感应出高达 20 V 的尖峰，无距离数值，距离需自行用实测确定。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 取电机驱动网络(MOTOR_*、分流电阻网络)与 SW 节点铜皮的外包矩形，与模拟网络(HX711、ADC 输入)及天线禁布区的最小距离，要求大于所设阈值(建议 >= 10 mm，作为初值待实测校准，来源未给数值)。
+- `review`（manual）· 布局评审 — 确认电机引线和开关节点不平行靠近敏感走线，确认功率区与模拟区之间有连续地平面隔开。
+
+**来源**
+- [Dealing with Motor Noise (Pololu)](https://www.pololu.com/docs/0J15/9) — Pololu, vendor_guide, §9 items 2-4
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §5 Routing the Traces (keep switching traces away from quiet traces)
+
+<a id="PWR-FLR-002"></a>
+#### PWR-FLR-002 · 电源入口按防护、储能、稳压顺序布局
+`should` · 可信度 `high` · 适用: power-entry, esp32-c3 · 标签: cat-feeder
+
+**规则** 电源接口附近依次排布 ESD/TVS、保险丝、至少 10 uF 的入口电容，再到稳压器；入口电容与靠近射频电源引脚的 10 uF 电容可合并为一个。
+
+**依据** Espressif 建议在主电源入口放 ESD 保护二极管和至少 10 uF 电容，以吸收射频发射时的瞬时电流和入口瞬态；防护器件靠近入口才能在能量扩散到板上之前钳位。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `entry_capacitor` | >= 10 uF | Espressif §1.3.2：主电源入口至少 10 uF。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 沿电源网络从接口焊盘出发，测 TVS、保险丝、入口电容、稳压器输入的先后顺序和到接口焊盘的距离，顺序须符合：接口 < 保险丝 < TVS/入口电容 < 稳压器；入口电容到稳压器 VIN 距离尽量短。
+- `review`（manual）· 布局评审 — 确认入口电容容值 >= 10 uF 且有效容值(见 PWR-SCH-006)满足。
+
+**来源**
+- [ESP Hardware Design Guidelines - ESP32-C3, Power Supply](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.2 and §1.4.2
+
+## 器件布局（placement）
+
+<a id="PWR-PLC-001"></a>
+#### PWR-PLC-001 · 先识别开关热回路，输入电容紧贴 IC 并最小化环路
+`must` · 可信度 `high` · 适用: buck, boost, flyback, buck-boost
+
+**规则** 对每种拓扑先画出开关导通与关断两种电流路径，其差值（电流突变的路径）就是热回路（降压为：输入电容 -> 高边管 -> SW -> 低边管/续流二极管 -> 输入电容地）；布局时先放输入电容和续流器件，使热回路面积最小，不经过过孔。
+
+**依据** 热回路上的 di/dt 与走线寄生电感（约 20 nH/英寸）产生电压尖峰，可导致控制器误动作、EMI 变差、效率下降甚至损坏。AN-1229 估算：1 英寸走线、1 A 在 30 ns 内切换产生约 0.7 V。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `trace_inductance_rule` | == 20 nH per inch | TI AN-1229 的经验值，约 0.8 nH/mm。 |
+| `hot_loop_area` | minimize | SW、VIN、GND 引脚到输入电容、续流器件的距离在制造规则允许下尽量短；ROHM 称哪怕缩短 1 mm 都值得。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python，参见 ee-pcb-verify 的 geometry 检查器 — 按网络表找出 CIN 正极焊盘 -> VIN 引脚 -> SW 引脚 -> 续流二极管/低边管 -> CIN 地焊盘构成的多边形，计算铜路径围成的环路面积和总长度；估算电感 L≈0.8 nH/mm*总长，与基线布局(如数据手册推荐布局)比较，不得更差。
+- `em_sim`（partial）· openEMS/Elmer 或 PEEC 估计 (可选) — 提取热回路寄生电感，与 SW 节点振铃频率对照。
+- `bench`（manual）· 示波器 + 差分探头 — 按 PWR-VER-007 测 SW 节点振铃，作为布局效果判据。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §3 AC and DC Current Paths; §4
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #1
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §1 Current Path; §3
+
+<a id="PWR-PLC-003"></a>
+#### PWR-PLC-003 · 续流二极管与 IC 同层，短而宽直连 SW 和 GND
+`must` · 可信度 `high` · 适用: buck, non-synchronous
+
+**规则** 非同步降压的续流（catch）二极管必须与 IC 在同一层，紧挨 IC，用短而宽的走线直接连到 SW 引脚和 GND 引脚，不经过过孔，也不放到背面。
+
+**依据** 二极管到 IC 的走线电感会在 SW 上叠加尖峰，并传导到输出；过孔电感（0.4 mm 孔、1.6 mm 板厚约 1.2 nH）使问题更糟。
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 二极管阴极焊盘 -> IC SW 焊盘、二极管阳极焊盘 -> IC GND 焊盘的铜路径：层必须相同，过孔数 = 0，路径长度尽量短(建议 < 5 mm 作为合格初值，来源未给数值)。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §4
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3, Figures 3-e/3-f
+
+<a id="PWR-PLC-002"></a>
+#### PWR-PLC-002 · 高频旁路电容紧贴 VIN/GND，大电容可稍远
+`should` · 可信度 `high` · 适用: buck, boost
+
+**规则** 高频旁路陶瓷电容（0.1~0.47 uF）放在 IC 的 VIN 与 GND 引脚上，与 IC 同层；大容量输入电容在旁路电容已经就近的前提下可离开约 2 cm 以内，且不要与输出电容共用一小段地。
+
+**依据** 快沿电流主要由旁路电容提供，大容量电容寄生参数较大，只补充较慢分量。若大电容放到背面经过孔连接，反而增加噪声。ROHM 还指出 CIN 与 CO 的地需拉开 1~2 cm，避免输入地上的数百 MHz 噪声串到输出。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `cin_bulk_to_bypass_distance` | <= 20 mm | ROHM 60AN066E：旁路电容靠近 IC 时，CIN 可相隔约 2 cm；TI AN-1229 称大电容可再往外移约 1 英寸(25 mm)。 |
+| `cin_cout_ground_separation` | >= 10 mm | ROHM：CIN 与 CO 的地至少相距 1 cm~2 cm。 |
+| `cbypass_same_layer` | qualitative | 旁路电容与 IC 同层，禁止通过过孔连接 (AN-1229、ROHM)。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 测 CBYPASS 焊盘到 IC VIN/GND 引脚焊盘中心距离(要求尽量小，建议小于 2 mm 作为合格初值)；CBYPASS 与 IC 同层；CIN 到 CBYPASS 距离 <= 20 mm；CIN 地焊盘与 CO 地焊盘中心距 >= 10 mm。
+- `drc`（partial）· KiCad 自定义规则 .kicad_dru — 对 CBYPASS 到 IC 引脚之间的走线加『禁止过孔』约束。
+
+**来源**
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3, Figures 3-a to 3-d
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §4
+
+<a id="PWR-PLC-004"></a>
+#### PWR-PLC-004 · 电感靠近 IC 但不必比输入电容更近，SW 铜皮最小
+`should` · 可信度 `high` · 适用: buck, boost, flyback
+
+**规则** 电感放在 IC 附近，优先级低于输入电容和续流器件；通过旋转电感使 SW 节点铜皮最小，并便于连到输出电容；优先选闭磁路（封闭磁芯、屏蔽式）电感，开磁路电感则远离低功率走线并使磁极垂直于 PCB。
+
+**依据** SW 节点是最主要的 EMI 源，所有连在其上的铜都是对周围节点的寄生电容板；开磁路（棒状）电感发射的磁场最强。
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 电感 SW 侧焊盘到 IC SW 引脚的铜路径长度和 SW 网络总铜面积，与同类参考布局比较，面积只允许承载电流所需；检查电感下方和端子间是否有敏感走线(见 PWR-PLN-001)。
+- `bom_check`（partial）· BOM 参数检查 — 电感类型为屏蔽/闭磁路；未屏蔽时在评审记录中说明为何可接受。
+
+**来源**
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #2
+- [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §1 Inductor
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §2 item 3
+
+<a id="PWR-PLC-006"></a>
+#### PWR-PLC-006 · 升压变换器先放输出电容，再放电感和输入电容
+`should` · 可信度 `high` · 适用: boost
+
+**规则** 升压变换器布局顺序为：先放输出电容并短而宽地连到 IC；再放电感（SW 铜皮在满足载流前提下最小）；最后放输入电容，其地靠近 IC 的 PGND 引脚。需要用过孔连输出电容时，每安培电流至少一个过孔。
+
+**依据** 升压的输出电容电流是脉动的，输出电容到 IC 的寄生电感使 SW 产生尖峰和振铃；输入电流连续，输入电容位置要求较宽松。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `output_cap_via_count_per_amp` | >= 1 via per A | TI SLVA773 §1：如需过孔，建议每安培一个过孔；TI AN-1149 另说每 200 mA 一个过孔，见 PWR-RTE-006 的冲突说明。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 输出电容正极焊盘到 IC VOUT/SW 引脚、地焊盘到 PGND 引脚的铜路径长度和宽度；输出电容到 IC 的总路径应短于输入电容到 IC 的路径；输出电容路径上的过孔数 >= 电流(A)。
+
+**来源**
+- [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Steps 1-3
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §4 (boost: output capacitor current is pulsed)
+
+<a id="PWR-PLC-007"></a>
+#### PWR-PLC-007 · LDO 输入输出电容靠近引脚，负载走线宽
+`should` · 可信度 `medium` · 适用: ldo, ams1117, lm1117 · 标签: cat-feeder
+
+**规则** 1117 类 LDO 的输入电容和输出电容（补偿用的 ESR 电容）紧贴稳压器引脚，承载负载电流的走线加宽以降低寄生电感；可调版从 VOUT 到 ADJ 的反馈环路尽量短，ADJ 旁路电容紧靠 IC；输出分压上端直接接 VOUT 引脚。
+
+**依据** 走线电感会影响调整率和瞬态；可调版分压上端若不直接接输出引脚，负载调整率会变差。
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 测输入/输出电容正极焊盘到 VIN/VOUT 引脚焊盘的路径长度和宽度；要求路径 < 10 mm 且宽度不小于负载电流所需(见 PWR-RTE-005)，10 mm 为初值，来源未给数值。
+
+**来源**
+- [LM1117 800-mA Low-Dropout Linear Regulator, Layout Guidelines](https://www.ti.com/lit/ds/symlink/lm1117.pdf) — Texas Instruments, datasheet, §9.5.1 Layout Guidelines
+- [AMS1117 datasheet (SLKOR copy) - Load Regulation](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Load Regulation, Figure 2
+- [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §3 Filter Capacitors
+
+<a id="PWR-PLC-005"></a>
+#### PWR-PLC-005 · RC 缓冲电路跨接在 SW 与 GND 引脚上并按振铃频率定值
+`consider` · 可信度 `high` · 适用: buck, boost
+
+**规则** 只在振铃超标且布局已优化后才加 RC 缓冲；缓冲电路放在 IC 的 SW 与 GND 引脚之间、环路最短，而不是跨在二极管两端；先测振铃频率，用加电容使频率减半的方法估计寄生 Lp、Cp，取 Rs≈sqrt(Lp/Cp)。
+
+**依据** 缓冲电路的作用是吸收走线电感引起的尖峰和 SW 寄生谐振，位置在 IC 引脚处才能旁路热回路；功耗约为 C*V^2*fsw 量级，电容过大只增加损耗。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `snubber_resistance_simple_switcher` | 10 … 100 ohm | TI AN-1229 §4：低电感类型电阻。 |
+| `snubber_capacitance_simple_switcher` | 0.47 … 2.2 nF | AN-1229：陶瓷电容 470 pF~2.2 nF；更大电容损耗不可接受。 |
+| `snubber_cap_to_parasitic_ratio` | == 3 x Cp | TI SLUA851A：Cs 通常取寄生电容 Cp 的约 3 倍；其 14 A 例中 Rs=1.54 ohm、Cs=1 nF 使 SW 峰值从 26 V 降到 17.5 V。 |
+
+**验证**
+- `bench`（manual）· 差分探头(>=500 MHz)，示波器 — 按 SLUA851A 步骤：测无缓冲的振铃频率 f1，加小电容使频率降为 f1/2，据 Lp=1/((2π f1)^2 Cp) 等式求出 Lp、Cp，设 Rs=sqrt(Lp/Cp)，Cs≈3Cp；再测峰值、效率变化；缓冲电阻功耗 P≈Cs*Vin^2*fsw 不得超过电阻额定。
+- `spice`（partial）· ngspice，含 Lp、Coss 寄生 — 用估计的 Lp、Cp 仿真有/无缓冲的 SW 峰值，确认阻尼。
+
+**来源**
+- [Minimizing Switch Ringing on TPS53318 and TPS53319 Family of Devices (SLUA851A)](https://www.ti.com/lit/pdf/slua851) — Texas Instruments, app_note, §3.1 Method of RC Snubber Designing; §4
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §4
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3, Figures 3-g/3-h
+
+## 布线（routing）
+
+<a id="PWR-RTE-001"></a>
+#### PWR-RTE-001 · SW 节点铜皮只留够载流的最小面积
+`must` · 可信度 `high` · 适用: buck, boost, flyback, buck-boost
+
+**规则** SW 节点（电感、续流管、开关管连接处）的铜皮只保留承载电流所需的最小面积，不要为散热而铺大片 SW 铜，也不要在对面层做同形状的 SW 铜岛；其他走线不得从 SW 铜皮下面穿过。
+
+**依据** SW 节点电压剧烈摆动，任何与之相连的铜都是天线和对邻近节点的寄生电容板；对面层镜像铜岛会割裂地平面。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `sw_node_copper_area` | minimize | AN-1229、SLYT614、SLVA773、ROHM 均给方向性要求，无数值。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 统计 SW 网络在所有层的铜面积(焊盘+走线+铺铜)，与载流所需面积比较(宽度按 PWR-RTE-005)；检查 SW 铜皮正下方、正对面层是否有其他网络的走线或被割开的地平面。
+- `drc`（partial）· KiCad 自定义规则 — 对 SW 网络设置最大铜铺宽度或禁止 zone fill。
+
+**来源分歧** 热与 EMI 的取舍：AN-1229 §6.3 指出非同步降压续流二极管的阴极/散热片就是 SW 节点，散热要求大铜皮与 EMI 要求小铜皮冲突；建议选阳极接散热片的器件，或对地做电气隔离（不隔热）的外部散热。AN-1229 也提到有人建议在对面层做同形状 SW 铜岛并用过孔连接以增加散热、抑制串扰，但会割裂地平面，AN-1229 不赞成。取舍：以小铜皮为准，散热靠同步整流、选低损耗器件或把热引到接地的散热焊盘。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §5 Routing the Traces; §6.3 Thermal Management
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #2
+- [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Step 2
+
+<a id="PWR-RTE-002"></a>
+#### PWR-RTE-002 · 热回路走线不经过孔，必须时并联多孔
+`must` · 可信度 `high` · 适用: buck, boost, flyback, buck-boost
+
+**规则** 输入旁路电容、续流二极管、功率开关到 IC 的热回路连接不使用过孔；若无法避免（如通孔器件），用多个过孔并联，并优先加大孔径。
+
+**依据** 一个 0.4 mm 孔、1.6 mm 板厚的过孔电感约 1.2 nH，几乎是同样尺寸导线的两倍；高 di/dt 下会产生可观的电压尖峰，TI 观察到旁路电容经过孔连接的高速降压 IC 会出现偶发现场问题。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `via_inductance_example` | == 1.2 nH | AN-1229：0.4 mm 孔径、1.6 mm 板厚；式 (1) 与孔高、孔径相关。 |
+| `hot_loop_via_count` | == 0 pcs | SLYT614 Step #3：功率元件之间不应使用过孔；ROHM 同。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 列出热回路路径(CIN+ -> VIN -> SW -> 续流管 -> CIN-)上的所有过孔，要求数量为 0；若 > 0 则输出并联数量与孔径，作为需要评审的例外。
+- `drc`（partial）· KiCad 自定义规则(.kicad_dru) — 对热回路网络段设置禁止放置过孔的约束区域(rule area)。
+
+**来源分歧** SLYT614 的「特殊考虑」章节说明某些具体封装可在 SW 连接上用过孔（本次未读到该节细节）。取舍：默认零过孔，有具体器件数据手册推荐的过孔布局时以数据手册为准。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §5 Routing the Traces, Eq. 1
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #3
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3, Figure 3-d
+
+<a id="PWR-RTE-003"></a>
+#### PWR-RTE-003 · 反馈线短、远离 SW 与电感，取样点在输出电容处
+`must` · 可信度 `high` · 适用: buck, boost, flyback, ldo-adjustable
+
+**规则** 反馈（FB/VOS）走线尽量短并远离 SW 节点、电感、续流二极管，不从电感或二极管下方穿过，不与功率走线平行；输出电压取样点接在输出电容之后（或其两端）的安静位置；分压电阻紧靠 IC 的 FB 引脚；如有可能，反馈线走在与电感相对的另一层并以地平面隔开。
+
+**依据** FB 引脚是误差放大器的高阻输入，拾取噪声会造成输出电压误差、抖动甚至不稳定；若一端是低阻节点则不易耦合，因此分压电阻靠近 IC 是更优的布线方式。
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 计算 FB 网络所有走线段、焊盘到 SW 网络铜皮、电感本体外框的最小间距，并检测 FB 走线是否位于电感/续流管封装外框正下方(任一层)、是否与功率网络平行并行超过 3 mm(平行长度阈值为初值，来源未给数值)；要求最小间距尽量大，作为评审项设下限。
+- `review`（manual）· 布局评审 — 确认取样点位于输出电容之后，FB 走线不跨越开关环路；FB 分压电阻到 FB 引脚 < 5 mm(初值)。
+
+**来源分歧** AN-1149 说反馈线要「尽量直接且稍粗」，但与「远离电感和噪声源」冲突时以远离为优先；AN-1229 则指出反馈线可以故意绕长一点以避开噪声源，或把分压电阻放在 IC 旁使其两端都是低阻节点。取舍：远离噪声源优先于最短。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §8 Signal Traces: Feedback, Figure 5
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §5 Feedback route, Figure 7
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #3 (VOS pin), Step #4 (FB node)
+- [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §2 Feedback
+
+<a id="PWR-RTE-005"></a>
+#### PWR-RTE-005 · 大电流走线按 IPC-2152 和温升目标定宽
+`must` · 可信度 `high` · 适用: power-routing, motor-drive, high-current, dc-power-distribution · 标签: cat-feeder
+
+**规则** 每条承载稳态或周期性大电流的走线，宽度要由 IPC-2152 数据（或其计算器）按目标温升（通常 10~20 C）、铜厚、是否有相邻平面、局部板温来确定，并取走线最窄处校核；不能直接套用 IPC-2221 的外层曲线。
+
+**依据** IPC-2221 的曲线源自上世纪 50 年代对孤立表层走线的数据，内层曲线是外层的粗略折半，已被 IPC-2152 实测数据取代；邻近平面可大幅降低温升，邻近发热器件和平行走线会抬高局部板温。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `temperature_rise_target` | 10 … 20 C | AN-1229 称军标要求最大温升 20 C，30~40 C 也常见；IPC-2152 示例以 10 C 为例；同时 FR4 板面应保持 120 C 以下。 |
+| `width_per_amp_1oz_an1229` | >= 12 mil per A | AN-1229：温升 < 30 C、电流 < 5 A、1 oz 铜至少 12 mil/A（0.3 mm/A）；2 oz 为 7 mil/A。 |
+| `width_per_amp_1oz_an1149` | >= 15 mil per A | AN-1149：一般 PCB 上绝对最小 15 mil/A（0.381 mm/A）。 |
+| `width_per_amp_1oz_rohm` | >= 1 mm per A | ROHM 60AN066E：1 oz 铜 1 mm/A 以上，2 oz 为 0.7 mm/A 以上（受周围发热影响，较保守）。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python，读各功率网络最小线宽 + 电流表 — 对每个标注电流 I 的网络，取全部铜路径(走线、过孔、焊盘颈部)中最窄处宽度 W，按所选铜厚和 IPC-2152 数据换算温升 dT，要求 dT <= 20 C(默认)；同时 W >= 保守经验值(取 AN-1149 的 15 mil/A，作为快速筛选)。
+- `tline_calc`（partial）· IPC-2152 计算器(UltraCAD 等) — 输入电流、铜厚、板厚、邻近平面距离与面积，读温升；与几何脚本结果交叉核对。
+- `thermal_sim`（partial）· 热仿真(可选) — 高电流密集区域用热仿真核对局部板温。
+
+**来源分歧** 1) IPC-2221 与 IPC-2152 不一致：Olson 与 UltraCAD 指出旧图表的内层值是外层值的粗略折半，实测显示静止空气下内层走线反而比外层更凉（FR4 导热优于空气），2152 取代了旧的外层曲线；但也有博客与计算器网站（AtlasPCB 等，未能核实原文）声称 2152 给内层更低的载流量，与前两者矛盾，取舍：以 Olson/UltraCAD 对 IPC-2152 的解读为准，并用 2152『保守图』作下限。2) 经验宽度各源不同：TI AN-1229 为 12 mil/A（约 0.3 mm/A）、TI AN-1149 为 15 mil/A（0.381 mm/A）、ROHM 为 1 mm/A，差约 3 倍；取舍：快速筛选取较保守的 15 mil/A，精确核算用 IPC-2152；AN-1229 的 4 A、20 C 温升、1 oz 外层例得 1.4 mm（即 0.35 mm/A）与 IPC-2221 外层公式一致。
+
+**来源**
+- [Determining Circuit Board Current Carrying Capability (IPC-2152 how-to)](https://frontdoor.biz/PCBportal/HowTo2152.pdf) — Jack Olson, CID+, paper
+- [UltraCAD PCB Trace Current/Temperature Calculator Operator's Manual](https://ultracad.com/calculators/ucadpcb4operatormanual.pdf) — UltraCAD Design, tool_doc
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §6.1 Current Handling Capability
+- IPC-2152 Standard for Determining Current Carrying Capacity in Printed Board Design（IPC-2152 (August 2009); IPC-2221B Fig. 6-4） — IPC, standard
+
+<a id="PWR-RTE-007"></a>
+#### PWR-RTE-007 · 电流检测放大器输入走开尔文线接到分流电阻焊盘
+`must` · 可信度 `high` · 适用: shunt, current-sense, ina199, motor-drive · 标签: cat-feeder
+
+**规则** INA199 等分流监测器的 IN+ 与 IN- 用独立的开尔文（四线）走线直接连到分流电阻两端的感测焊盘，尽量靠近电阻本体，不经过负载电流的铜皮；两根感测线平行靠近走线。
+
+**依据** 毫欧级分流上，任何额外的大电流路径电阻都会直接计入测量，造成显著误差；感测线与功率线共享铜皮就把功率路径压降当作信号。
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 检查 IN+/IN- 网络：每个网络仅连接到分流电阻的一个感测焊盘和放大器引脚(及滤波元件)，铜路径不与大电流网络共用铜皮；两线长度差小于 20%(阈值为初值，来源未给)。
+- `bench`（manual）· 毫伏表/示波器 — 施加已知电流(如 1 A)，量分流两端电压与放大器输入电压是否一致，偏差应小于分流电阻容差。
+
+**来源**
+- [INA199 Voltage-Output, Current-Shunt Monitor](https://www.ti.com/lit/ds/symlink/ina199.pdf) — Texas Instruments, datasheet, §10.1 Layout Guidelines; §7.3.1 Basic Connections
+
+<a id="PWR-RTE-004"></a>
+#### PWR-RTE-004 · 自举电容回路短，IC 地引脚走线同样要短
+`should` · 可信度 `high` · 适用: buck, synchronous-buck
+
+**规则** 自举（BOOT/BST）电容紧靠 BOOT 与 SW 引脚，走线短；IC 的 GND 引脚走线也要短，输入旁路电容紧靠 VIN/GND；需要降低 SW 振铃时可在自举电容串联一个小电阻（TI 试验 0~3 ohm）。
+
+**依据** 驱动高边 MOSFET 栅极的尖峰电流来自自举电容，其刷新电流通过 IC 的 GND 引脚，GND 引脚阻抗过大会造成地弹和控制器误动作；串联自举电阻放慢高边导通，降低 SW 峰值，以略降效率为代价。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `bootstrap_resistor_tested` | 0 … 3.01 ohm | TI SLUA851A（TPS53319，12 V 入 1.5 V 出、14 A、500 kHz）：Rbst 从 0 增到 3.01 ohm，SW 峰值由 24.5 V 降到 18 V，效率 90.67% 降到 90.37%。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 测 BOOT 电容两焊盘到 IC BOOT 与 SW 引脚的路径长度，以及 IC GND 引脚到地平面过孔/CIN 地的距离，要求均小于数据手册参考布局的长度。
+- `bench`（manual）· 差分探头，示波器 — 分别用 0 ohm 与 1.5~3 ohm 自举电阻测 SW 峰值，选满足绝对最大额定值余量且效率可接受的值。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §3 (ground pin carries bootstrap refresh current)
+- [Minimizing Switch Ringing on TPS53318 and TPS53319 Family of Devices (SLUA851A)](https://www.ti.com/lit/pdf/slua851) — Texas Instruments, app_note, §5 Adding Bootstrap Resistor
+
+<a id="PWR-RTE-006"></a>
+#### PWR-RTE-006 · 换层大电流路径按电流估算并联过孔数量
+`should` · 可信度 `medium` · 适用: power-routing, motor-drive, boost, buck · 标签: cat-feeder
+
+**规则** 大电流走线换层时按电流确定过孔数量，并联多个过孔，不要用单个过孔；主电源走线换层至少两个过孔。
+
+**依据** 过孔是镀铜筒，截面积只有几十平方密尔，电阻和温升在大电流下不可忽略；多孔并联同时降低电感。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `vias_per_amp_slva773` | >= 1 vias per A | TI SLVA773 §1：每安培一个过孔。 |
+| `vias_per_amp_an1149` | >= 5 vias per A | TI AN-1149 §5：每 200 mA 一个标准过孔，即 5 个/A。 |
+| `main_power_trace_min_vias` | >= 2 pcs | Espressif §1.4.2：主电源走线换层至少两个过孔。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 对每条标注电流 I 的网络，找出所有换层位置，统计并联过孔数 N，要求 N >= max(2, ceil(I / 1 A))(采用 SLVA773 的较宽松值，保守者取 ceil(I/0.2 A))；输出 N 与电流。
+- `tline_calc`（partial）· IPC-2152 过孔计算(镀层厚度按 20~25 um 估计) — 按过孔筒壁截面积 π*t*(d+t) 估算每孔载流，与 N 交叉验证。
+
+**来源分歧** 两份 TI 文档相差 5 倍：SLVA773 每安培一个过孔，AN-1149 每 200 mA 一个过孔。镀层 20~25 um 的 0.3 mm 过孔在 10 C 温升下约 0.65~1.9 A（取决于计算公式，来源为二手计算器，未列入出处）。取舍：连续大电流路径取保守值（每 0.2~0.5 A 一个），短时电流和并联众多时可放宽；并且应让并联过孔均匀分布，以免电流集中。
+
+**来源**
+- [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Step 1
+- [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §5 Traces and Ground Plane
+- [ESP Hardware Design Guidelines - ESP32-C3, Power Supply (four-layer PCB)](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.4.2
+
+<a id="PWR-RTE-008"></a>
+#### PWR-RTE-008 · 3.3 V 电源走线按 Espressif 最小线宽
+`should` · 可信度 `high` · 适用: esp32-c3, power-routing · 标签: cat-feeder
+
+**规则** ESP32-C3 的 3.3 V 主电源走线宽度不小于 25 mil，VDD3P3 走线不小于 20 mil，其他电源走线建议 10 mil，电源走线周围用接地铜包围；电源经星形分支到各引脚，每个电源引脚就近放去耦电容并在电容地焊盘旁加地过孔。
+
+**依据** 射频发射时电流突增，细走线的压降和电感会使供电塌陷；星形分支减小引脚间耦合。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `main_3v3_trace_width_min` | >= 25 mil | Espressif §1.4.2。 |
+| `vdd3p3_trace_width_min` | >= 20 mil | Espressif §1.4.2。 |
+| `other_power_trace_width` | == 10 mil | 推荐值。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 对 +3V3 网络从稳压器到模块各电源引脚的全路径取最窄处，要求 >= 25 mil(0.635 mm)；VDD3P3 对应网络段 >= 20 mil；输出列表。
+
+**来源**
+- [ESP Hardware Design Guidelines - ESP32-C3, Power Supply](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.4.2
+
+## 平面与铺铜（plane_pour）
+
+<a id="PWR-PLN-001"></a>
+#### PWR-PLN-001 · 变换器热回路下方保持连续地平面
+`should` · 可信度 `medium` · 适用: buck, boost, flyback, two-layer, four-layer · 标签: cat-feeder
+
+**规则** 双层或多层板上，变换器及其热回路正下方的一层保持完整连续的地平面，不被切割、不开槽；SW 节点铜皮不要叠在地平面的同一位置之外制造割裂；电感正下方应避免地铜和敏感信号线。
+
+**依据** 回流电流高频时紧贴信号路径下方，连续地平面使环路面积最小、电感最低；割裂的地平面像缝隙天线。但电感下方的地铜会产生涡流使电感量和 Q 下降，并可能把开关噪声耦合到其他层。
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 取热回路多边形(见 PWR-PLC-001)在地层上的投影，检查该区域内地铜覆盖率 >= 95%(阈值为初值，来源未给)，且无槽/开口穿过；检测电感封装外框正下方各层是否存在地铜或非 SW 信号线，输出供评审。
+- `drc`（partial）· KiCad zone 填充 + 自定义规则 — 地铜皮 zone 的最小宽度、被切断的孤岛数为 0。
+
+**来源分歧** 来源冲突：TI AN-1229/AN-1149 要求地平面连续（AN-1149 建议两面都铺地以吸收电感辐射的 EMI）；ROHM 60AN066E 则指出电感正下方不要放地层（涡流使电感量和 Q 下降），也不要在电感下方走线，必须时用闭磁路电感。取舍：整个变换器区域保持连续地平面，但在电感本体正下方避免走敏感线；使用屏蔽/闭磁路电感时地铜可保留。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §5, §7 Ground Plane
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §5 (no ground layer directly below the inductor, Figure 6-c)
+- [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §5 Traces and Ground Plane
+
+<a id="PWR-PLN-002"></a>
+#### PWR-PLN-002 · 信号地与功率地在 IC 地点单点汇合
+`should` · 可信度 `high` · 适用: buck, boost, flyback, mixed-signal
+
+**规则** 把功率元件（输入/输出电容、电感、IC 的 PGND）的地与小信号元件（FB 分压、软启动、补偿、AGND）的地分区布局，在 IC 的 PGND/散热焊盘附近单点连接，使功率电流不流过信号地；输入电容地与输出电容地之间拉开 1~2 cm。这种分区应通过布局和走线实现，不是把地平面切断。
+
+**依据** 功率地电流若流过信号地，会把噪声耦合进控制电路，导致输出电压调整差、限流不准；散热焊盘处汇合还提供最佳散热路径。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `cin_cout_ground_separation` | >= 10 mm | ROHM 60AN066E：CIN 与 CO 的地至少相隔 1~2 cm。 |
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 追踪 AGND 网络(FB 分压下端等)到地平面的连接点：只允许一个连接点，距离 IC PGND/散热焊盘 < 3 mm(初值，来源未给)；确认 AGND 路径上没有输入电容、输出电容地电流。
+- `netlist_diff`（full）· kicad-cli 网表 — 若设计中把 AGND、PGND 分为不同网络，必须通过唯一的 0 ohm/网桥或在 IC 下方的铜连接。
+
+**来源分歧** AN-1229 §7 认为低功率 SIMPLE SWITCHER 用一个完整单地平面即可（高功率多层板才拆分功率地与信号地平面），并强调不要割裂平面；SLYT614/SLVA773 要求功率地与信号地分开、再单点汇合。取舍：两者可兼得：在同一连续地平面上，通过元件分区与电流路径控制，让功率电流不经过信号地区域，并在 PGND/散热焊盘处汇合；不要靠挖槽分割平面。
+
+**来源**
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #5
+- [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Step 5
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §3
+
+<a id="PWR-PLN-003"></a>
+#### PWR-PLN-003 · 降压 IC 散热焊盘用 0.3 mm 小孔阵列接地
+`should` · 可信度 `high` · 适用: buck, boost, qfn, htsop, thermal-pad
+
+**规则** 开关稳压器底部散热焊盘（QFN/HTSOP 等）下用小孔径（约 0.3 mm 钻孔）、约 1.0~1.2 mm 中心距的过孔阵列接到地平面；孔不要过大，必要时靠近而非完全位于焊盘正下方，以免焊料被吸走造成虚焊。
+
+**依据** 热过孔绕过 FR4 把热量传到另一面，可使热阻降低 50%~70%；孔径过大会在回流焊中吸锡。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `thermal_via_drill` | 0.3 … 0.33 mm | TI AN-1229：0.3~0.33 mm 桶径，使孔在镀铜后几乎被填满；ROHM 内径 0.3 mm。 |
+| `thermal_via_pitch` | 1.0 … 1.2 mm | AN-1229：1~1.2 mm；ROHM 约 1.2 mm。 |
+| `thermal_resistance_reduction_with_vias` | 50 … 70 % | AN-1229 §6.3：使用热过孔可降热阻 50%~70%。 |
+
+**验证**
+- `geometry_script`（full）· pcbnew Python — 对每个带散热焊盘的电源 IC：统计焊盘内过孔数、孔径、相邻中心距；要求孔径 0.3~0.33 mm，间距 1.0~1.2 mm，过孔连接到地平面且无热隔离(thermal relief)。
+- `drc`（manual）· KiCad DRC + 板厂工艺能力 — 确认板厂对焊盘内过孔(via-in-pad)的工艺要求(是否需要树脂塞孔/盖油)，避免吸锡。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §6.3 Thermal Management
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §4 Introduce Thermal Via, Figure 4
+- [Five steps to a great PCB layout for a step-down converter (SLYT614)](https://www.ti.com/lit/pdf/slyt614) — Texas Instruments, app_note, Step #5
+
+<a id="PWR-PLN-004"></a>
+#### PWR-PLN-004 · 电机电流回路用独立地铜，单点接到逻辑地
+`should` · 可信度 `medium` · 适用: motor-drive, mixed-signal, current-sense · 标签: cat-feeder
+
+**规则** 电机电流（FET 源极、分流电阻、续流二极管、母线电容地端）的回路用一块独立的地铜或宽走线，在一个点（如分流电阻远端或母线电容地）接到逻辑/模拟地平面，使电机电流不流过 MCU、HX711、INA199 参考点的地区域；INA199 的 REF/GND 接在无大电流的安静地点。
+
+**依据** 电机电流在地平面上产生的压降会直接叠加到逻辑地和 ADC 参考上；开尔文分流只能消除分流本身以外的压降，不能消除参考点漂移。
+
+**验证**
+- `geometry_script`（partial）· pcbnew Python — 提取电机回路地网络的铜区域，确认其与逻辑地区域只有一个窄连接点；测从该连接点到 MCU/INA199 GND 引脚的路径不穿过电机电流回路铜皮。
+- `bench`（manual）· 示波器 — 电机启停与堵转时测 INA199 REF 与 MCU GND 之间的电压差，应远小于 ADC 1 LSB 对应电压。
+
+**来源**
+- [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Step 5 (no large power current through Signal-Ground)
+- [INA199 Voltage-Output, Current-Shunt Monitor](https://www.ti.com/lit/ds/symlink/ina199.pdf) — Texas Instruments, datasheet, §10.1 Layout Guidelines
+- [Dealing with Motor Noise (Pololu)](https://www.pololu.com/docs/0J15/9) — Pololu, vendor_guide
+
+## 签核验证（verification）
+
+<a id="PWR-VER-001"></a>
+#### PWR-VER-001 · 开关电源环路增益相位裕量与穿越频率签核
+`must` · 可信度 `high` · 适用: buck, boost, flyback, buck-boost
+
+**规则** 对每个带反馈环的开关变换器，用 SPICE AC 分析（或实测波特图）确认环路增益穿越频率处相位裕量 >= 45 度（目标 60 度），增益裕量至少 6 dB（10 dB 为好），穿越频率约为开关频率的 1/10~1/5，穿越点斜率约 -20 dB/十倍频；并在输出电容容值/ESR 的降额与公差极值、最小/最大负载、最低/最高输入电压的各角落重复。
+
+**依据** 相位裕量不足会振铃甚至振荡；输出陶瓷电容的实际容值随偏置显著下降，补偿网络按标称值设计会在极值角落失稳。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `phase_margin_min` | >= 45 deg | TI Sheehan & Diana：45 度及以上为设计目标；MaxLinear ANP-16 要求大于 45 度；TI SLVA432 指出 60 度是通常的目标。 |
+| `phase_margin_target` | == 60 deg | TI SLVA432：非陶瓷输出电容因老化 ESR 增大，目标可再高一些。 |
+| `gain_margin_min` | >= 6 dB | TI：至少 -6 dB，-10 dB 为好。 |
+| `crossover_over_fsw` | 0.1 … 0.2 fc/fsw | TI：开关频率的 1/5~1/10；MaxLinear ANP-16：fs/10 < fc < fs/5；SLVA432 以 1/5 为实践目标。 |
+
+**验证**
+- `spice`（full）· ngspice/LTspice 平均模型或厂商模型，插入断环注入电阻做 AC 扫描 — 读增益 0 dB 的频率 fc 与此处相位裕量 PM、相位 -180 度处的增益裕量 GM；用 .step 扫描 Cout(C_eff，见 PWR-SCH-006)、ESR、Iload、Vin 的所有极值角落，全部满足 PM >= 45 度、GM >= 6 dB、fc 在 [fsw/10, fsw/5] 内。
+- `bench`（manual）· 网络分析仪 + 注入变压器，或负载阶跃测试 — 实测环路增益，或观察负载阶跃响应的阻尼，对照 SPICE。
+
+**来源分歧** 相位裕量目标不一：45 度（TI Sheehan、MaxLinear）与 60 度（TI SLVA432）。取舍：45 度为下限，设计目标取 60 度并在容差角落仍不低于 45 度。
+
+**来源**
+- [Switch-mode power converter compensation made easy (Sheehan, Diana)](https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/196/switchingpower_5F00_compensation.pdf) — Texas Instruments, app_note, Phase and gain-margin definitions
+- [ANP-16 Loop Compensation of Voltage-Mode Buck Converters](https://www.maxlinear.com/appnote/anp-16_typeiiiloopcomp_101206.pdf) — MaxLinear (Sipex), app_note
+- [Power Topology - Buck Converter (SLVA432)](https://www.ti.com/lit/an/slva432/slva432.pdf) — Texas Instruments, app_note, Type-III compensation design
+
+<a id="PWR-VER-002"></a>
+#### PWR-VER-002 · 负载阶跃响应与 LDO 稳定性的 SPICE 与实测
+`must` · 可信度 `high` · 适用: ldo, buck, boost, ams1117 · 标签: cat-feeder
+
+**规则** 每个稳压器（LDO 和开关电源）都要做负载阶跃（如 10%->90% 额定电流）的仿真和实测，观察输出过冲/下冲幅度和振铃衰减；LDO 要在整板装好所有输出旁路电容后，拆掉被供电 IC、用等效电阻做阶跃，振铃明显说明相位裕量不足。
+
+**依据** 阶跃响应是相位裕量的直接可观察量。过冲/下冲约等于阶跃电流乘输出阻抗，LDO 电源上遗漏的陶瓷旁路电容会使相位裕量骤降而 AC 仿真漏掉。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `load_step_overshoot_formula` | qualitative | TI SLYT639：dV ≈ dIout × Zout(fc)；纹波 ≈ dIL × Zout(fsw)。 |
+
+**验证**
+- `spice`（full）· ngspice 瞬态，含 Cout(ESR、ESL、降额)、旁路电容及走线电感 — 10%->90% 阶跃，上升/下降时间 <= 1 us(初值)，读 Vout 最大偏差 dV 与稳定时间，要求 dV 在系统允许范围内且振铃至少 3 个周期内衰减；扫描 Cout 极值。
+- `bench`（manual）· MOSFET 开关 + 函数发生器 + 示波器(TI SLVA115A 图 3 的方法) — 在整板条件下做阶跃，记录 Vout，阻尼比不足(明显振铃)判不通过；LDO 需拆掉被供电 IC，用电阻代替负载。
+
+**来源**
+- [ESR, Stability, and the LDO Regulator (SLVA115A)](https://www.ti.com/lit/pdf/slva115) — Texas Instruments, app_note, Figure 3 load transient setup
+- [AN-1482 LDO Regulator Stability Using Ceramic Output Capacitors](https://www.ti.com/lit/an/snva167a/snva167a.pdf) — Texas Instruments, app_note, §8
+- [Ceramic or electrolytic output capacitors in DC/DC converters - Why not both? (SLYT639)](https://www.ti.com/lit/an/slyt639/slyt639.pdf) — Texas Instruments, app_note
+
+<a id="PWR-VER-004"></a>
+#### PWR-VER-004 · 电机启动/堵转期间核算电源轨跌落与欠压余量
+`must` · 可信度 `medium` · 适用: motor-drive, ldo, esp32-c3, brown-out · 标签: cat-feeder
+
+**规则** 仿真并实测电机启动、堵转（和刚上电同时 Wi-Fi 发射）时的最坏电源跌落：5 V 输入经线缆、PPTC、连接器后的最低电压，LDO 输出最低电压；要求 3.3 V 轨不低于 3.0 V（模块下限、监控芯片阈值），且 LDO 压差余量仍成立。母线电容要足够吸收电机电流突变。
+
+**依据** 电机电流突变在电源内阻上造成电压凹陷，会使 LDO 掉出稳压而让 MCU 复位。Pololu 提示用足够大的去耦电容隔离噪声，并说明电机噪声可使 MCU 电源电压凹陷而复位。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `min_3v3_rail` | >= 3.0 V | Espressif：数字电源 3.0~3.6 V；监控芯片阈值推荐约 3.0 V。 |
+| `bulk_cap_motor_supply` | >= 100 uF | Pololu 的建议是几百 uF 的电解电容，额定电压至少 2 倍输入电压(针对其电机驱动板)；示例板用 100 uF，应以仿真/实测为准而不是照搬。 |
+
+**验证**
+- `spice`（full）· ngspice 瞬态，电机用 R-L-反电势或恒流堵转源 — 5 V 源内阻 + 线缆 + PPTC(热态最大电阻) + 母线电容(降额)；电机堵转 1 s，同时 Wi-Fi 脉冲 0.35 A，读 3.3 V 最低值与 LDO 的 Vin-Vout，要求 >= 3.0 V 且 Vin-Vout >= 压差(PWR-ARC-003)。
+- `bench`（manual）· 示波器 4 通道 — 实测上述工况下 5 V 入口、LDO 输入、3.3 V 输出、复位线，确认无复位且最低值满足。
+
+**来源**
+- [Dealing with Motor Noise (Pololu)](https://www.pololu.com/docs/0J15/9) — Pololu, vendor_guide, §9 intro and item 4
+- [ESP Hardware Design Guidelines - ESP32-C3, Power-up and Reset Timing](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.3.2-§1.3.3
+
+<a id="PWR-VER-003"></a>
+#### PWR-VER-003 · 上电浪涌电流与热插拔电压过冲仿真
+`should` · 可信度 `medium` · 适用: power-entry, ldo, buck, hot-plug · 标签: cat-feeder
+
+**规则** 仿真并实测上电或负载接入时对总电容充电的浪涌电流 I=C*dV/dt，及电源热插入时输入电压最大值；浪涌电流必须小于连接器、PPTC 保持电流之外的限制与电源能力，输入电压峰值必须低于稳压器 Vin 绝对最大额定值。
+
+**依据** 浪涌电流可能超过连接器和走线的载流能力，使电源轨跌出稳压、系统进入异常状态；陶瓷输入电容与线缆电感还会产生过冲（见 PWR-SCH-005）。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `inrush_formula` | qualitative | TI SLVA670A：I_INRUSH = C_LOAD × dV/dt；示例 3.3 V、22 uF、限 600 mA，需约 121 us 上升时间。 |
+
+**验证**
+- `spice`（full）· ngspice 瞬态 — 电源阶跃(上升时间 10 us~10 ms 的角落)，串入线缆电阻/电感，读入口电流峰值和稳压器输入电压峰值；要求峰值电流 < PPTC 保持电流与连接器额定电流，Vin 峰值 < 稳压器绝对最大额定值。
+- `bench`（manual）· 电流探头 + 示波器 — 反复热插拔和上电，捕获入口电流与 Vin 峰值。
+
+**来源**
+- [Managing Inrush Current (SLVA670A)](https://www.ti.com/lit/an/slva670a/slva670a.pdf) — Texas Instruments, app_note, §1 What is Inrush Current?
+- [AN88 Ceramic Input Capacitors Can Cause Overvoltage Transients (未能打开原文，据搜索摘要)](https://www.analog.com/media/en/technical-documentation/application-notes/an88f.pdf) — Analog Devices (Linear Technology), app_note
+
+<a id="PWR-VER-005"></a>
+#### PWR-VER-005 · PDN 目标阻抗与电容网络反谐振检查
+`should` · 可信度 `medium` · 适用: pdn, decoupling, mcu, esp32-c3
+
+**规则** 对负载瞬态大的电源轨，先按 Z_target = (Vdd × 允许纹波%) / I_transient 确定目标阻抗，再用 PDN 仿真或阻抗测量确认从 DC 到所需带宽的阻抗都低于目标；多种容值并联时检查电容间的反谐振峰，不要不检查就添加电容。
+
+**依据** 不同容值电容的 ESL 与另一电容的容值形成并联谐振，产生阻抗尖峰，可能比任一电容单独时还高；安装电感常常主导高频阻抗，因此过孔和焊盘布局比标称容值更重要。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `target_impedance` | qualitative | Z_target = ΔV / I_transient；JLCPCB 示例：1.0 V 轨、5% 纹波、10 A 瞬态对应 5 mohm。MCU 轨上的 ΔV 与 I 需按数据手册电压范围(如 3.0~3.6 V)与射频发射电流估算。 |
+
+**验证**
+- `pi_sim`（partial）· PDN 阻抗仿真(如 ngspice 阻抗模型或厂商 PDN 工具) — 建立稳压器输出阻抗、各电容(含 ESR、ESL 和安装电感)和平面电容模型，扫频 1 kHz~100 MHz，读阻抗曲线，对照 Z_target，找反谐振峰高度。
+- `bench`（manual）· VNA 2 端口并联直通法(亚毫欧) — 实测电源轨阻抗；1 端口反射法无法分辨亚毫欧阻抗。
+
+**来源分歧** JLCPCB 博客本身的算例存在数值不一致（把 50 mV 说成 1.0 V 轨的 3%），取其公式而不取其算例；MCU 小板上 Z_target 的 I_transient 缺少公认估算法，需依数据手册和实测定。
+
+**来源**
+- [AN2018_1 The Target Impedance Approach to PDN Design](https://www.icd.com.au/articles/TargetZ_Design007-Feb2018.pdf) — In-Circuit Design (Barry Olney), paper
+- [Mastering PDN Impedance for Stable Power Delivery in PCBs](https://jlcpcb.com/blog/pdn-impedance-high-performance-pcb) — JLCPCB, blog
+- [PDN Application of Ferrite Beads (Steve Weir)](https://emcfastpass.com/wp-content/uploads/2017/04/PDN_Ferrite_Beads.pdf) — IPBLOX, paper
+
+<a id="PWR-VER-006"></a>
+#### PWR-VER-006 · 以正确探测方法测量 SW 节点振铃并核对余量
+`should` · 可信度 `high` · 适用: buck, boost, synchronous-buck
+
+**规则** 测量 SW 节点尖峰和振铃时用带宽 >= 500 MHz 的探头，最好用 1 GHz 差分探头并探在 SW 引脚与散热焊盘/GND 之间的最近处，以最短地线；读到的峰值要低于 IC 引脚的绝对最大额定值并留出余量。
+
+**依据** 单端探头的长地线环路会拾取噪声并使峰值虚高或虚低：TI 的例子中同一块板单端测得 21.76 V，差分测得 18.4 V。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `probe_bandwidth_min` | >= 500 MHz | TI SLUA851A：电压探头带宽 500 MHz 以上；推荐 1 GHz 差分探头。 |
+
+**验证**
+- `bench`（manual）· 1 GHz 差分探头 + 示波器；板上预留 SW 与 GND 测试点(地簧针焊盘) — 满载及负载阶跃下测 SW 峰值，并检查 dV/dt；峰值须低于 IC SW 引脚绝对最大额定值，余量建议 >= 20%(初值，来源未给)。
+- `spice`（partial）· ngspice，含寄生 Lp/Coss — 与实测比较，校准寄生参数，再用于改版预测。
+
+**来源**
+- [Minimizing Switch Ringing on TPS53318 and TPS53319 Family of Devices (SLUA851A)](https://www.ti.com/lit/pdf/slua851) — Texas Instruments, app_note, §2 Proper Measurement Method of Switch Ringing
+
+<a id="PWR-VER-007"></a>
+#### PWR-VER-007 · 估算效率与损耗预算并与热限比较
+`consider` · 可信度 `medium` · 适用: ldo, buck, boost · 标签: cat-feeder
+
+**规则** 对每个稳压器给出损耗预算：LDO 的效率约为 Vout/Vin（再计入静态电流），降压按导通、开关、电感、二极管损耗逐项估算；非同步降压的二极管损耗按平均电流 Iout×(1-D)×Vf 计；总损耗与封装/铜面积决定的热限比较。
+
+**依据** 损耗直接决定温升，也是选 LDO 还是开关电源的依据；二极管损耗取决于平均电流而不是负载电流。
+
+| 参数 | 判据 | 备注 |
+|---|---|---|
+| `ams1117_quiescent_current_max` | <= 10 mA | AMS1117 数据手册：静态电流典型 3 mA、最大 10 mA。 |
+
+**验证**
+- `spice`（partial）· ngspice 瞬态平均功耗，.meas — 稳态仿真下统计 Pin、Pout，算 η=Pout/Pin 与各器件耗散；与元件热限比较(见 PWR-ARC-002)。
+- `bom_check`（full）· Python 计算 — LDO：P=(Vin-Vout)*Iout+Vin*Iq；二极管：P=Iout*Vf*(1-D)，如 AN-1229 的例子 5 A、Vf=0.5 V、D=0.4 时 1.5 W。
+
+**来源**
+- [AN-1229 SIMPLE SWITCHER PCB Layout Guidelines](https://www.ti.com/lit/an/snva054c/snva054c.pdf) — Texas Instruments, app_note, §6.3 (diode dissipation example)
+- [AMS1117 datasheet (SLKOR copy) - Electrical Characteristics](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8122/AMS11173.3SOT223.pdf) — Advanced Monolithic Systems / SLKOR, datasheet, Quiescent current; Thermal Protection
+
