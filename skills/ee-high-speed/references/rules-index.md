@@ -17,7 +17,7 @@
 | ID | 标题 | 级别 | 可信度 | 最强验证 |
 |---|---|---|---|---|
 | HSD-SCH-002 | LVDS 接收端用 100 Ω（±2%）差分端接电阻 | must | high | bom_check(full) |
-| HSD-SCH-004 | 按协议决定是否串联隔直电容及其值和封装 | must | high | bom_check(full) |
+| HSD-SCH-004 | 按协议决定是否串联隔直电容及其值和封装 ⚠ | must | high | bom_check(full) |
 | HSD-SCH-006 | USB-C 受电设备在 CC1、CC2 各接 5.1 kΩ 下拉 | must | high | erc(full) |
 | HSD-SCH-009 | DDR3 的 Vref 与 VTT 用 1% 分压并就近去耦 | must | high | erc(full) |
 | HSD-SCH-010 | 按总线电容和模式计算 I2C 上拉电阻窗口 | must | high | bom_check(partial) |

@@ -83,7 +83,7 @@
 | 参数 | 判据 | 备注 |
 |---|---|---|
 | `rail_output_current_capability` | >= 500 mA | Espressif ESP32-C3 硬件设计指南 §1.3.2：单电源供电时推荐 3.3 V、输出电流不小于 500 mA。示例板原理图注释写的 Wi-Fi 峰值约 0.35 A，低于该推荐值，选型时应以 500 mA 为准。 |
-| `ldo_current_limit_ams1117` | >= 1 A | AMS1117 数据手册电流限制 1 A 量级，满足 500 mA，但散热见 PWR-ARC-002。 |
+| `ldo_current_limit_ams1117` | >= 1 A | AMS1117 数据手册 Current limit 最小 1 A（VIN-VOUT=2 V），满足 500 mA，但散热见 PWR-ARC-002。 |
 
 **验证**
 - `bom_check`（partial）· BOM / 数据手册参数表检查脚本 — 读出 3.3 V 稳压器的额定输出电流 I_rated，与模块推荐电流 500 mA 比较，要求 I_rated >= 500 mA；同时检查稳压器输入侧上游器件（PPTC 保持电流、连接器额定电流）不小于 5 V 侧总电流。
@@ -143,7 +143,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `rtheta_ja_steady_state_ao3400a` | <= 125 C/W | AO3400A 稳态最大 125 C/W、典型 100 C/W，测试条件为 1 in2 FR-4、2 oz 铜、静止空气；实际板铜面积更小时会更高。 |
+| `rtheta_ja_steady_state_ao3400a` | <= 125 C/W | AO3400A 稳态最大 125 C/W、典型 100 C/W，测试条件为 1 in2 FR-4、2 oz 铜、静止空气；实际板铜面积更小时会更高。数据手册的 PD 额定（脚注 B）按 t<=10 s 的 RthetaJA（典型 70、最大 90 C/W）给出，持续堵转要用稳态值。 |
 | `rds_on_hot_over_cold` | == 1.43 ratio | AO3400A 在 Vgs=10 V 下，Tj=125 C 最大 38 mohm 对 25 C 最大 26.5 mohm，即 38/26.5。 |
 | `tj_max_ao3400a` | <= 150 C | AO3400A 结温上限。 |
 
@@ -205,7 +205,7 @@
 
 **验证**
 - `bom_check`（partial）· BOM 检查脚本 — 输出电容类型为钽/聚合物时读其 100 kHz 下 ESR，要求落在 [0.3, 0.5] ohm（两份数据手册窗口的交集）；若为纯 MLCC，判不通过并要求加串联电阻或改型号。
-- `spice`（partial）· ngspice AC / 阶跃负载 — 在输出端用 ESR(f) 模型的 Cout，做 10%~90% 负载阶跃，输出过冲/振铃衰减在 3 个周期内；AC 相位裕量 >= 45 度。
+- `spice`（partial）· ngspice AC / 阶跃负载 — 在输出端用 ESR(f) 模型的 Cout，做 10%~90% 负载阶跃，初始尖峰之后振铃不超过 4 次（SLVA115A：通常 4 个振铃以内表示相位裕量足够）；AC 相位裕量 >= 45 度（45 度为工程取值，非 SLVA115A 数值）。
 - `bench`（manual）· 示波器 + MOSFET 开关负载阶跃 — 按 TI SLVA115A 的阶跃负载方法（MOSFET 开关 + 函数发生器）观察输出振铃。
 
 **来源分歧** 两份数据手册说法不同：AMS1117 只给 ESR 上限 0.5 ohm（不给下限），LM1117 给 0.3~22 ohm；另有第三方博客声称 AMS1117 要求 0.3~22 ohm（未能核实到厂商原文）。取舍：按交集 0.3~0.5 ohm 选型最稳妥，再用阶跃负载实测；实际采购的『1117』克隆厂商版本之间差异大，务必看自己那一版数据手册。也有人在不加补偿时用陶瓷电容勉强工作，但属于不可靠的边际条件，不收为通过判据。
@@ -285,7 +285,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `trip_test_multiple` | == 5 x Ihold | Bourns 数据手册的 Time to Trip 在 5 倍 Ihold、Vmax、23 C 下规定；翻转时间随故障电流变化，需查所选型号曲线。 |
+| `trip_test_multiple` | == 5 x Ihold | Bourns MF-R 等系列数据手册的 Time to Trip 在 5 倍 Ihold、Vmax、23 C 下规定（其余系列在各自规定的电流下），不是所有系列都用 5 倍；翻转时间随故障电流变化，需查所选型号曲线。 |
 
 **验证**
 - `bom_check`（partial）· Python 读 BOM + PPTC 降额表 — 取 Tmax_ambient 对应的降额后 Ihold，要求 >= 1.2 倍的持续最大电流（1.2 为工程余量，非来源数值）；检查 Vmax >= 最高电源电压、Imax >= 电源最大短路电流。
@@ -320,10 +320,10 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `hotplug_overshoot_ratio_worst` | <= 2 x Vsupply | ADI 对 AN88 的概述（搜索摘要）：输入引脚电压可振铃到约 2 倍标称输入电压；未能打开 AN88 原文，量级需自行用仿真确认。 |
+| `hotplug_overshoot_ratio_worst` | <= 2 x Vsupply | AN88 的转载版（EDN/Evertiq）与 ADI 搜索摘要一致：电压尖峰「可以轻易达到输入电压阶跃幅度的 2 倍」，即约 2 倍电源电压；ADI 官网 PDF 本次未能打开（超时），量级需自行用仿真确认。 |
 
 **验证**
-- `spice`（partial）· ngspice 瞬态 — 电源阶跃叠加线缆电感 0.5~2 uH 与 ESR 参数、输入陶瓷电容，读输入节点电压峰值，要求不超过稳压器 Vin 绝对最大额定值的 90%。
+- `spice`（partial）· ngspice 瞬态 — 电源阶跃叠加线缆电感 0.5~2 uH 与 ESR 参数、输入陶瓷电容，读输入节点电压峰值，要求不超过稳压器 Vin 绝对最大额定值的 90%（90% 为工程余量，来源未给）。
 - `bench`（manual）· 示波器 + 带电插拔 — 用已上电的适配器反复热插入，捕获输入引脚上的最大电压，要求低于器件绝对最大额定值并留出余量。
 
 **来源**
@@ -336,7 +336,7 @@
 
 **规则** 任何依赖电容值的功能（LDO/降压输出和输入电容、保持电容）都要用有效电容值：由厂商直流偏置曲线、温度特性和公差逐项降额后，仍满足最小电容要求；介质用 X5R 或更好。
 
-**依据** 铁电陶瓷的电容随直流电压下降，案例中 10 uF/0603/X7R 在偏置下只剩约 7 uF，再经高温和 ±20% 公差只剩约 3.5 uF；大封装降额更小。
+**依据** 铁电陶瓷的电容随直流电压下降，TI SSZT654 案例中 10 uF/0603/X7R 在偏置下只剩约 7 uF，再经 125 C 高温（-15%）和 ±20% 公差，文中得约 3.5 uF（该文逐步算术并不严格自洽：7*0.85*0.8 约 4.8 uF，但结论相同，即不足标称值的一半）；大封装降额更小。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -344,7 +344,7 @@
 | `dielectric_minimum` | qualitative | TI SLVA477：介质须为 X5R 或更好，否则偏置和温度下损失过大。 |
 
 **验证**
-- `bom_check`（partial）· Python 读 BOM + 厂商直流偏置数据 — 对每个对电容有下限要求的位置：C_eff = C_nom * f_bias(Vdc, 封装) * f_temp(Tmax) * (1 - tol)；要求 C_eff >= 稳压器数据手册的最小电容（或环路需要的值）。无偏置数据则按 C_eff <= 50% C_nom 保守处理。
+- `bom_check`（partial）· Python 读 BOM + 厂商直流偏置数据 — 对每个对电容有下限要求的位置：C_eff = C_nom * f_bias(Vdc, 封装) * f_temp(Tmax) * (1 - tol)；要求 C_eff >= 稳压器数据手册的最小电容（或环路需要的值）。无偏置数据则按 C_eff <= 50% C_nom 保守处理（50% 为工程保守值，非来源数值）。
 - `spice`（partial）· ngspice，.step 电容值 — 把电容设为 C_eff 的最坏值，复跑环路增益与负载阶跃，见 PWR-VER-001。
 
 **来源**
@@ -514,7 +514,7 @@
 | 参数 | 判据 | 备注 |
 |---|---|---|
 | `ams1117_vref_tolerance` | == 2 % | AMS1117 数据手册：基准/输出电压 ±2%；3.3 V 固定版 3.234~3.366 V(Vin=Vout+2 V、10 mA~1 A、25 C)。 |
-| `ams1117_load_regulation_max` | <= 0.5 % | 同上数据手册：Vin-Vout=2 V、10 mA~1 A 下负载调整率最大 0.5%，线性调整率最大 0.3%。 |
+| `ams1117_load_regulation_max` | <= 0.5 % | 同上数据手册：Vin-Vout=2 V、10 mA~1 A 下负载调整率最大 0.5%；线性调整率最大 0.3%，条件是 Vout+1.5 V<=Vin<=12 V、Iout=10 mA（与负载调整率的测试条件不同）。 |
 | `esp32c3_vdd_range` | 3.0 … 3.6 V | Espressif：VDD3P3_CPU 等数字电源 3.0 V~3.6 V。 |
 
 **验证**
@@ -573,7 +573,7 @@
 #### PWR-FLR-002 · 电源入口按防护、储能、稳压顺序布局
 `should` · 可信度 `high` · 适用: power-entry, esp32-c3 · 标签: cat-feeder
 
-**规则** 电源接口附近依次排布 ESD/TVS、保险丝、至少 10 uF 的入口电容，再到稳压器；入口电容与靠近射频电源引脚的 10 uF 电容可合并为一个。
+**规则** 电源接口附近依次排布保险丝、ESD/TVS（并联到地，位于保险丝之后，见 PWR-SCH-001）、至少 10 uF 的入口电容，再到稳压器；入口电容与靠近射频电源引脚的 10 uF 电容可合并为一个。
 
 **依据** Espressif 建议在主电源入口放 ESD 保护二极管和至少 10 uF 电容，以吸收射频发射时的瞬时电流和入口瞬态；防护器件靠近入口才能在能量扩散到板上之前钳位。
 
@@ -634,7 +634,7 @@
 
 **规则** 高频旁路陶瓷电容（0.1~0.47 uF）放在 IC 的 VIN 与 GND 引脚上，与 IC 同层；大容量输入电容在旁路电容已经就近的前提下可离开约 2 cm 以内，且不要与输出电容共用一小段地。
 
-**依据** 快沿电流主要由旁路电容提供，大容量电容寄生参数较大，只补充较慢分量。若大电容放到背面经过孔连接，反而增加噪声。ROHM 还指出 CIN 与 CO 的地需拉开 1~2 cm，避免输入地上的数百 MHz 噪声串到输出。
+**依据** 快沿电流主要由旁路电容提供，大容量电容寄生参数较大，只补充较慢分量。ROHM：若连旁路电容也放到背面经过孔连接，过孔电感会产生电压噪声，不要这样布局（图 3-d）；仅大容量 CIN 因空间不够放到背面经过孔时，噪声风险可避免，但大电流下纹波会因过孔电阻而增大（图 3-c）。ROHM 还指出 CIN 与 CO 的地需拉开 1~2 cm，避免输入地上的数百 MHz 噪声串到输出。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -706,7 +706,7 @@
 #### PWR-PLC-005 · RC 缓冲电路跨接在 SW 与 GND 引脚上并按振铃频率定值
 `consider` · 可信度 `high` · 适用: buck, boost
 
-**规则** 只在振铃超标且布局已优化后才加 RC 缓冲；缓冲电路放在 IC 的 SW 与 GND 引脚之间、环路最短，而不是跨在二极管两端；先测振铃频率，用加电容使频率减半的方法估计寄生 Lp、Cp，取 Rs≈sqrt(Lp/Cp)。
+**规则** 只在振铃超标且布局已优化后才加 RC 缓冲；缓冲电路放在 IC 的 SW 与 GND 引脚之间、环路最短，而不是跨在二极管两端；先测振铃频率，用加电容使频率减半的方法估计寄生 Lp、Cp，取 Rs≈0.5*sqrt(Lp/Cp)（SLUA851A 式 (6)，阻尼系数 ξ=1）。
 
 **依据** 缓冲电路的作用是吸收走线电感引起的尖峰和 SW 寄生谐振，位置在 IC 引脚处才能旁路热回路；功耗约为 C*V^2*fsw 量级，电容过大只增加损耗。
 
@@ -717,8 +717,10 @@
 | `snubber_cap_to_parasitic_ratio` | == 3 x Cp | TI SLUA851A：Cs 通常取寄生电容 Cp 的约 3 倍；其 14 A 例中 Rs=1.54 ohm、Cs=1 nF 使 SW 峰值从 26 V 降到 17.5 V。 |
 
 **验证**
-- `bench`（manual）· 差分探头(>=500 MHz)，示波器 — 按 SLUA851A 步骤：测无缓冲的振铃频率 f1，加小电容使频率降为 f1/2，据 Lp=1/((2π f1)^2 Cp) 等式求出 Lp、Cp，设 Rs=sqrt(Lp/Cp)，Cs≈3Cp；再测峰值、效率变化；缓冲电阻功耗 P≈Cs*Vin^2*fsw 不得超过电阻额定。
+- `bench`（manual）· 差分探头(>=500 MHz)，示波器 — 按 SLUA851A 步骤：测无缓冲的振铃频率 f1，加小电容 Cs0 使频率降为 f1/2，据式 (4)(5) 求 Lp=(T2^2-T1^2)/(4π^2*Cs0)（T=1/f）、Cp≈1/(4π^2*f1^2*Lp)，设 Rs=0.5*sqrt(Lp/Cp)（式 (6)，ξ=1），Cs≈3Cp；再测峰值、效率变化；缓冲电阻功耗 P≈Cs*Vin^2*fsw 不得超过电阻额定。
 - `spice`（partial）· ngspice，含 Lp、Coss 寄生 — 用估计的 Lp、Cp 仿真有/无缓冲的 SW 峰值，确认阻尼。
+
+**来源分歧** SLUA851A §3.1 正文说缓冲电阻『等于寄生谐振回路的特征阻抗』（即 sqrt(Lp/Cp)），但同节式 (6)（ξ=1 时 Rs=0.5*sqrt(Lp/Cp)）和 14 A 算例（Lp=2.43 nH、Cp≈261 pF，sqrt(Lp/Cp)≈3.05 ohm，算得 Rs=1.53 ohm）给出的都是特征阻抗的一半。取舍：以式 (6) 和算例为准；实际再用示波器按峰值与效率微调。
 
 **来源**
 - [Minimizing Switch Ringing on TPS53318 and TPS53319 Family of Devices (SLUA851A)](https://www.ti.com/lit/pdf/slua851) — Texas Instruments, app_note, §3.1 Method of RC Snubber Designing; §4
@@ -806,7 +808,7 @@
 |---|---|---|
 | `temperature_rise_target` | 10 … 20 C | AN-1229 称军标要求最大温升 20 C，30~40 C 也常见；IPC-2152 示例以 10 C 为例；同时 FR4 板面应保持 120 C 以下。 |
 | `width_per_amp_1oz_an1229` | >= 12 mil per A | AN-1229：温升 < 30 C、电流 < 5 A、1 oz 铜至少 12 mil/A（0.3 mm/A）；2 oz 为 7 mil/A。 |
-| `width_per_amp_1oz_an1149` | >= 15 mil per A | AN-1149：一般 PCB 上绝对最小 15 mil/A（0.381 mm/A）。 |
+| `width_per_amp_1oz_an1149` | >= 15 mil per A | AN-1149 §5：标准 PCB 上走线「绝对最小」15 mil/A（0.381 mm/A）；原文未指明铜厚（参数名中的 1oz 是本库按常用铜厚的假设，不是原文条件）。 |
 | `width_per_amp_1oz_rohm` | >= 1 mm per A | ROHM 60AN066E：1 oz 铜 1 mm/A 以上，2 oz 为 0.7 mm/A 以上（受周围发热影响，较保守）。 |
 
 **验证**
@@ -814,7 +816,7 @@
 - `tline_calc`（partial）· IPC-2152 计算器(UltraCAD 等) — 输入电流、铜厚、板厚、邻近平面距离与面积，读温升；与几何脚本结果交叉核对。
 - `thermal_sim`（partial）· 热仿真(可选) — 高电流密集区域用热仿真核对局部板温。
 
-**来源分歧** 1) IPC-2221 与 IPC-2152 不一致：Olson 与 UltraCAD 指出旧图表的内层值是外层值的粗略折半，实测显示静止空气下内层走线反而比外层更凉（FR4 导热优于空气），2152 取代了旧的外层曲线；但也有博客与计算器网站（AtlasPCB 等，未能核实原文）声称 2152 给内层更低的载流量，与前两者矛盾，取舍：以 Olson/UltraCAD 对 IPC-2152 的解读为准，并用 2152『保守图』作下限。2) 经验宽度各源不同：TI AN-1229 为 12 mil/A（约 0.3 mm/A）、TI AN-1149 为 15 mil/A（0.381 mm/A）、ROHM 为 1 mm/A，差约 3 倍；取舍：快速筛选取较保守的 15 mil/A，精确核算用 IPC-2152；AN-1229 的 4 A、20 C 温升、1 oz 外层例得 1.4 mm（即 0.35 mm/A）与 IPC-2221 外层公式一致。
+**来源分歧** 1) IPC-2221 与 IPC-2152 不一致：Olson 指出旧图表（IPC-2221 图 6-4，1950 年代仅有表层走线数据）的内层值据信是把外层值折算（承载能力折半）得来的，并无实验依据；Olson 与 UltraCAD 均指出 IPC-2152 实测显示静止空气下内层走线反而比外层更凉（FR4 导热优于空气）；Olson 还指出旧外层曲线只对大于 3x3 英寸且带平面的板偏安全，所以 IPC-2152 去掉了旧外层曲线。也有博客与计算器网站（AtlasPCB 等，未能核实原文）声称 2152 给内层更低的载流量，与前两者矛盾，取舍：以 Olson/UltraCAD 对 IPC-2152 的解读为准，并用 2152『保守图』作下限。2) 经验宽度各源不同：TI AN-1229 为 12 mil/A（约 0.3 mm/A，仅 1 oz 外层、温升 < 30 C、电流 < 5 A）、TI AN-1149 为 15 mil/A（0.381 mm/A，未指明铜厚）、ROHM 为 1 mm/A，差约 3 倍；取舍：快速筛选取较保守的 15 mil/A，精确核算用 IPC-2152；AN-1229 的 4 A、20 C 温升、1 oz 外层例得 54 mil（1.4 mm，即 0.35 mm/A），与 IPC-2221 外层拟合公式 I=0.048*dT^0.44*A^0.725（A 单位 mil^2，1 oz 厚 1.378 mil；公式出自计算器网站对 IPC-2221 的转述，未读到标准原文）的计算结果（约 52 mil）一致。3) 这些每安培经验值针对外层走线（AN-1229 明说只考虑外层/双层板），不要直接套用到内层。
 
 **来源**
 - [Determining Circuit Board Current Carrying Capability (IPC-2152 how-to)](https://frontdoor.biz/PCBportal/HowTo2152.pdf) — Jack Olson, CID+, paper
@@ -873,13 +875,14 @@
 
 **验证**
 - `geometry_script`（full）· pcbnew Python — 对每条标注电流 I 的网络，找出所有换层位置，统计并联过孔数 N，要求 N >= max(2, ceil(I / 1 A))(采用 SLVA773 的较宽松值，保守者取 ceil(I/0.2 A))；输出 N 与电流。
-- `tline_calc`（partial）· IPC-2152 过孔计算(镀层厚度按 20~25 um 估计) — 按过孔筒壁截面积 π*t*(d+t) 估算每孔载流，与 N 交叉验证。
+- `tline_calc`（partial）· IPC-2152 过孔计算(镀层厚度按 20~25 um 估计，为工程假设；ROHM 图 12/14 用 15~18 um) — 按过孔筒壁截面积 π*t*(d+t) 估算每孔载流，与 N 交叉验证。
 
-**来源分歧** 两份 TI 文档相差 5 倍：SLVA773 每安培一个过孔，AN-1149 每 200 mA 一个过孔。镀层 20~25 um 的 0.3 mm 过孔在 10 C 温升下约 0.65~1.9 A（取决于计算公式，来源为二手计算器，未列入出处）。取舍：连续大电流路径取保守值（每 0.2~0.5 A 一个），短时电流和并联众多时可放宽；并且应让并联过孔均匀分布，以免电流集中。
+**来源分歧** 两份 TI 文档相差 5 倍：SLVA773（SLYT614 也同样写）每安培一个过孔，AN-1149 每 200 mA 一个过孔。ROHM 60AN066E §10-3 图 14 给出按 1.6 mm 板厚、约 15~18 um 镀层、线宽按 2 mm/A 折算的单孔允许电流：0.3 mm 孔约 0.4 A、0.4 mm 孔约 0.6 A、0.8 mm 孔约 1.2 A，折合 0.3 mm 孔约 2.5 个/A、0.4 mm 孔约 1.7 个/A，介于 SLVA773 的 1 个/A 与 AN-1149 的 5 个/A 之间。取舍：连续大电流路径取保守值（每 0.2~0.5 A 一个），短时电流和并联众多时可放宽；并且应让并联过孔均匀分布，以免电流集中。
 
 **来源**
 - [Five Steps to a Good PCB Layout of a Boost Converter (SLVA773)](https://www.ti.com/lit/an/slva773/slva773.pdf) — Texas Instruments, app_note, Step 1
 - [AN-1149 Layout Guidelines for Switching Power Supplies](https://www.ti.com/lit/an/snva021c/snva021c.pdf) — Texas Instruments, app_note, §5 Traces and Ground Plane
+- [PCB Layout Techniques of Buck Converter (60AN066E)](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf) — ROHM, app_note, §10-3 Allowable Current of Via, Figure 14
 - [ESP Hardware Design Guidelines - ESP32-C3, Power Supply (four-layer PCB)](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/esp-hardware-design-guidelines-en-master-esp32c3.pdf) — Espressif, vendor_guide, §1.4.2
 
 <a id="PWR-RTE-008"></a>
@@ -892,7 +895,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `main_3v3_trace_width_min` | >= 25 mil | Espressif §1.4.2。 |
+| `main_3v3_trace_width_min` | >= 25 mil | Espressif §1.4.2（该节针对推荐的四层板设计，两层板可参照但需自行核算载流与压降）。 |
 | `vdd3p3_trace_width_min` | >= 20 mil | Espressif §1.4.2。 |
 | `other_power_trace_width` | == 10 mil | 推荐值。 |
 
@@ -1027,7 +1030,7 @@
 | `load_step_overshoot_formula` | qualitative | TI SLYT639：dV ≈ dIout × Zout(fc)；纹波 ≈ dIL × Zout(fsw)。 |
 
 **验证**
-- `spice`（full）· ngspice 瞬态，含 Cout(ESR、ESL、降额)、旁路电容及走线电感 — 10%->90% 阶跃，上升/下降时间 <= 1 us(初值)，读 Vout 最大偏差 dV 与稳定时间，要求 dV 在系统允许范围内且振铃至少 3 个周期内衰减；扫描 Cout 极值。
+- `spice`（full）· ngspice 瞬态，含 Cout(ESR、ESL、降额)、旁路电容及走线电感 — 10%->90% 阶跃，上升/下降时间 <= 1 us(初值)，读 Vout 最大偏差 dV 与稳定时间，要求 dV 在系统允许范围内且初始尖峰之后振铃不超过 4 次（SLVA115A：通常 4 个振铃以内表示相位裕量足够）；扫描 Cout 极值。
 - `bench`（manual）· MOSFET 开关 + 函数发生器 + 示波器(TI SLVA115A 图 3 的方法) — 在整板条件下做阶跃，记录 Vout，阻尼比不足(明显振铃)判不通过；LDO 需拆掉被供电 IC，用电阻代替负载。
 
 **来源**
@@ -1046,7 +1049,7 @@
 | 参数 | 判据 | 备注 |
 |---|---|---|
 | `min_3v3_rail` | >= 3.0 V | Espressif：数字电源 3.0~3.6 V；监控芯片阈值推荐约 3.0 V。 |
-| `bulk_cap_motor_supply` | >= 100 uF | Pololu 的建议是几百 uF 的电解电容，额定电压至少 2 倍输入电压(针对其电机驱动板)；示例板用 100 uF，应以仿真/实测为准而不是照搬。 |
+| `bulk_cap_motor_supply` | qualitative | Pololu 建议在需隔离噪声的电子器件旁放至少几百 uF 的电解电容，额定电压至少 2 倍输入电压（针对其电机驱动板，原文无单一数值）。示例板用的 100 uF 低于该建议量级，不是来源数值，应以仿真/实测为准而不是照搬。 |
 
 **验证**
 - `spice`（full）· ngspice 瞬态，电机用 R-L-反电势或恒流堵转源 — 5 V 源内阻 + 线缆 + PPTC(热态最大电阻) + 母线电容(降额)；电机堵转 1 s，同时 Wi-Fi 脉冲 0.35 A，读 3.3 V 最低值与 LDO 的 Vin-Vout，要求 >= 3.0 V 且 Vin-Vout >= 压差(PWR-ARC-003)。

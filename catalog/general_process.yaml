@@ -307,8 +307,8 @@
     - method: spice
       tool: "ngspice / LTspice（电源斜坡 + 复位 RC 的瞬态仿真）"
       check: >-
-        用实际电源上升时间（最慢和最快各一个）仿真：CHIP_EN 越过 0.75 x VDD 的时刻必须晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us；
-        掉电再上电的最短间隔下 EN 也必须被拉低至少 50 us。
+        用实际电源上升时间（最慢和最快各一个）仿真：CHIP_EN 上升越过 VIL_nRST（0.25 x VDD，数据手册 Figure 2-4 中 tSTBL 的终点）的时刻必须晚于各电源轨达到 2.8 V（Figure 2-4 的标注点）至少 50 us，
+        且 EN 随后要升过 VIH_nRST（0.75 x VDD）；掉电再上电的最短间隔下 EN 也必须低于 VIL_nRST 至少 50 us（tRST）。
       automatable: partial
     - method: bench
       tool: "示波器（多通道）"
@@ -621,7 +621,8 @@
       kind: tool_doc
   confidence: high
   conflicts: >-
-    SLUA271 早期版本（2002）写锡膏覆盖约 50%，2023 修订版写 50-70%；其他厂商的 QFN 指南可能给出不同的覆盖范围。
+    SLUA271 的 2018 年修订版 B 与 2023 年修订版 C 都写锡膏覆盖约 50-70%（C 版修订历史只改了编号格式；2002 年原版未取得原文）；
+    其他厂商的 QFN 指南可能给出不同的覆盖范围（未核对）。
     取舍：按所用器件的厂商指南为准，没有时用 TI 最新修订版的 50-70%，并以首件 X 光结果修正。
   applies_to: [qfn, son, sot223, module_gnd_pad]
   tags: [cat-feeder]
@@ -1066,8 +1067,8 @@
     - method: spice
       tool: "ngspice / LTspice"
       check: >-
-        用最慢和最快的电源上升时间仿真 RC 与上拉：EN 越过 0.75 x VDD 的时刻晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us；
-        掉电后再上电时 EN 低于 0.25 x VDD 的持续时间 >= 50 us。
+        用最慢和最快的电源上升时间仿真 RC 与上拉：EN 上升越过 0.25 x VDD（VIL_nRST，数据手册 Figure 2-4 中 tSTBL 的终点）的时刻晚于各电源轨达到 2.8 V（Figure 2-4 的标注点）至少 50 us，
+        且 EN 随后升过 0.75 x VDD（VIH_nRST）；掉电后再上电时 EN 低于 0.25 x VDD 的持续时间 >= 50 us。
       automatable: partial
     - method: erc
       tool: "自写脚本：kicad-cli sch export netlist"
@@ -1260,7 +1261,7 @@
       automatable: full
     - method: geometry_script
       tool: "pcbnew Python（参见 ee-pcb-verify 的 geometry 检查器）"
-      check: "每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近焊盘中心距 >= 1.27 mm，与板边 >= 3.175 mm，全部在同一面。夹具数值以实际测试厂要求为准。"
+      check: "每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近的其他测试点中心距 >= 1.27 mm（首选 1.9 mm），与板边 >= 3.175 mm（首选 5 mm），与最近元件 >= 1.0 mm（首选 1.5 mm），全部在同一面。夹具数值以实际测试厂要求为准。"
       automatable: full
   sources:
     - title: "SMD Test Points and Design-for-Test Guidelines for PCBAs"
@@ -1931,6 +1932,7 @@
       publisher: "KiCad"
       kind: tool_doc
       section: "Electrical rules checking"
+  conflicts: "KiCad 10 手册的 ERC 表把 footprint_filter（封装与过滤器不符）列为 Warning，pcbkit 的参考表则写默认忽略。实测（2026-10-20，KiCad 10.0.6）：对没有 .kicad_pro 的裸工程跑 kicad-cli sch erc，报告里的 ignored_checks 为 single_global_label、four_way_junction、simulation_model_issue、footprint_filter；所以命令行 / CI 里以报告的 ignored_checks 为准，不要依赖手册表。"
   confidence: high
   applies_to: [erc, kicad]
 
@@ -1985,7 +1987,7 @@
       tool: "ngspice（kicad-cli sch export netlist --format spice 或 KiCad 内置仿真器）"
       check: >-
         对每个入选块写一个带判据的仿真网表（例如 EN 越过阈值的时刻、输出过冲 / 欠冲、ADC 输入最大电压、栅极峰值电压），
-        批处理运行并检查判据；容差用 STEP 或蒙特卡洛（TI 示例为 1000-100000 次）。
+        批处理运行并检查判据；容差用 STEP 或蒙特卡洛（TI SLYP673 给出的典型运行次数为 1000-100000 次）。
       automatable: partial
   sources:
     - title: "Schematic Design Review Checklist（Power：simulate switch-mode regulators for stability, current capability and voltage regulation）"

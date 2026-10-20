@@ -18,14 +18,25 @@ def test_catalog_validates():
     assert validate.main([str(ROOT / "catalog" / "verifiers.yaml")]) == 0
 
 
-def test_generated_docs_and_skills_are_current(tmp_path):
-    """Re-running the generators must not change tracked files (run `python tools/build_docs.py && python tools/build_skills.py`)."""
+def _snapshot():
+    import hashlib
+
+    h = {}
+    for base in ("docs", "skills"):
+        for f in sorted((ROOT / base).rglob("*")):
+            if f.is_file() and "__pycache__" not in f.parts and "_work" not in f.parts:
+                h[str(f.relative_to(ROOT))] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return h
+
+
+def test_generated_docs_and_skills_are_current():
+    """Re-running the generators must not change any file under docs/ or skills/ (run `python3 tools/build_docs.py && python3 tools/build_skills.py` after catalog edits)."""
+    before = _snapshot()
     for tool in ("build_docs.py", "build_skills.py"):
         subprocess.run([sys.executable, str(ROOT / "tools" / tool)], check=True, cwd=ROOT, capture_output=True)
-    diff = subprocess.run(["git", "status", "--porcelain", "docs", "skills"], cwd=ROOT, capture_output=True, text=True).stdout
-    if not (ROOT / ".git").exists():
-        pytest.skip("not a git checkout")
-    assert not [l for l in diff.splitlines() if l.startswith(" M")], f"generated files are stale:\n{diff}"
+    after = _snapshot()
+    stale = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    assert not stale, f"generated files were stale (now regenerated): {stale[:10]}"
 
 
 def _skills():

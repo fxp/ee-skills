@@ -12,7 +12,7 @@
 
 **规则** 设计之初给每个网络组标注电压域：交流不超过 50 Vrms、无纹波直流不超过 120 V 的为特低压（ELV，SELV/PELV 沿用此限值）；超过则属低压（LV）范围，须按危险电压处理（绝缘等级、爬电/间隙、熔断、认证）。要把瞬态（电机续流、浪涌）后的最高电压也计入核对。5 V/12 V 板是 ELV，由外部认证电源适配器提供 SELV，板上不接市电。
 
-**依据** ELV 阈值以下，电击危险由电源决定，板上只需要功能性间距；超过后须有基本/加强绝缘，间距按 IEC 62368-1 / IEC 60664-1 查表，加保险丝，做耐压测试，进入 EU 低压指令（2014/35/EU，下限 50 V AC / 75 V DC）的范围。
+**依据** ELV 阈值以下，电击危险由电源决定，板上只需要功能性间距；超过后须有基本/加强绝缘，间距按 IEC 62368-1 / IEC 60664-1 查表，加保险丝，做耐压测试，进入 EU 低压指令（2014/35/EU，下限 50 V AC / 75 V DC）的范围；注意该下限的直流值（75 V）低于 ELV 直流上限（120 V），75–120 V DC 区间虽属 ELV，产品仍可能落在低压指令适用范围内。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -39,7 +39,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `reinforced_creepage_multiplier` | == 2 ratio | smps.us 爬电计算器说明：查表值适用于功能、基本、附加绝缘；加强绝缘要加倍。间隙对加强绝缘按更高的脉冲耐压档取值，本研究未读到该表 |
+| `reinforced_creepage_multiplier` | == 2 ratio | smps.us 爬电计算器说明：查表值适用于功能、基本、附加绝缘；加强绝缘要加倍。间隙对加强绝缘取比基本绝缘高一档的额定脉冲耐压再查间隙表（TI SLUP419 对 IEC 60664-1 的转述，非标准原文）；例如 230 V、过压类别 II：基本 2.5 kV、加强 4 kV |
 
 **验证**
 - `review`（manual）· 绝缘图（自建） — 画出每道边界的两侧电压、绝缘类型、所用器件（隔离器、变压器、Y 电容）和要求的爬电/间隙；缺项即不通过
@@ -48,6 +48,7 @@
 - [Isolation Glossary (SLLA353A)](https://www.ti.com/lit/pdf/slla353) — Texas Instruments, app_note, Insulation definitions
 - [PCB Creepage Calculator](https://pcbdesign.smps.us/creepage.html) — smps.us (Lazar Rozenblat), tool_doc
 - [High-voltage reinforced isolation - definitions and test methodologies (SLYY063)](https://www.ti.com/lit/pdf/slyy063) — Texas Instruments, app_note
+- [Demystifying Clearance and Creepage Distance for High-Voltage End Equipment (SLUP419)](https://www.ti.com/lit/pdf/slup419) — Texas Instruments, app_note, Determining Creepage / Clearance for User Safety (reinforced = double creepage, one impulse step up)
 
 <a id="HVS-ARC-006"></a>
 #### HVS-ARC-006 · 锂电池包必须有电芯级保护 IC
@@ -68,7 +69,7 @@
 #### HVS-ARC-003 · 查表前先确定五个输入参数
 `should` · 可信度 `high` · 适用: creepage, clearance
 
-**规则** 在查爬电/间隙表之前，先书面确定工作电压（rms 与峰值）、过压类别（I–IV）、污染等级（1–4）、材料组（由 CTI 定）和最高工作海拔；一般用途室内设备污染等级通常按 2，存在导电污染或可预见的凝露时按 3。
+**规则** 在查爬电/间隙表之前，先书面确定工作电压（rms 与峰值）、过压类别（I–IV）、污染等级（1–4）、材料组（由 CTI 定）和最高工作海拔；一般用途室内设备污染等级通常按 2（仅偶发凝露引起的暂时导电仍属 2）；存在导电污染，或干燥的非导电污染会因预期出现的凝露而导电时按 3。
 
 **依据** 爬电距离由工作电压、污染等级和材料组共同决定，间隙由瞬态过压（过压类别与电网电压）和海拔决定；任一输入取错，查表结果都不可信。
 
@@ -94,7 +95,7 @@
 | 参数 | 判据 | 备注 |
 |---|---|---|
 | `altitude_baseline` | <= 2000 m | IEC/UL 的基准海拔；高于此需修正（据 smps.us 对 GB 4943.1 的转述） |
-| `altitude_clearance_multiplier_5000m` | == 1.48 ratio | 5000 m 的间隙倍数；中间海拔的系数请查 IEC 60664-1 表，本研究未读到该表 |
+| `altitude_clearance_multiplier_5000m` | == 1.48 ratio | 5000 m 的间隙倍数；与 TI SLUP419 引述的 IEC 60664-1 Table A.2（5000 m 为 1.48）一致，两处均为第三方转述；中间海拔的系数请查 IEC 60664-1 表，本研究未读到该表原文 |
 
 **验证**
 - `review`（manual）· 产品规格 / 标签 — 规格写明最高工作海拔；高于 2000 m 者间隙已放大
@@ -103,6 +104,7 @@
 **来源**
 - [PCB Trace Spacing for Voltage Levels (Rozenblat)](https://www.smps.us/pcbtracespacing.html) — smps.us, blog
 - [IPC-2221B Table 6-1 clearance (smpspowersupply)](https://www.smpspowersupply.com/ipc2221pcbclearance.html) — smpspowersupply.com, blog
+- [Demystifying Clearance and Creepage Distance for High-Voltage End Equipment (SLUP419)](https://www.ti.com/lit/pdf/slup419) — Texas Instruments, app_note, Example: 5,000 m correction factor 1.48 (IEC 60664-1 Table A.2)
 
 <a id="HVS-ARC-005"></a>
 #### HVS-ARC-005 · 隔离器件按额定值、封装爬电与 CTI 综合选型
@@ -152,7 +154,7 @@
 
 **规则** 电池是低阻抗电源，电池输出通路上必须串联保险丝（或经评估的 PPTC），保险丝的额定电压与分断能力要高于电池可能提供的短路电流，并紧靠电池端放置。
 
-**依据** 电池是低阻抗源，TI 建议始终串联保险丝作防火保护；保险丝的额定电压或分断能力不足会在断开时拉弧、产生等离子体和熔融金属，造成灾难性失效。自恢复保险丝（PPTC）同样会因过压损坏：Littelfuse 演示中最大电压 16 VDC 的 16R 系列用在 60 VDC 短路下失效，应选额定电压不低于该处最高电压的型号。
+**依据** 电池是低阻抗源，TI AN-2162（原文语境是 LISN 测试用的电池电源）建议始终串联保险丝作防火保护；保险丝的额定电压或分断能力不足会在断开时拉弧、产生等离子体和熔融金属，造成灾难性失效。自恢复保险丝（PPTC）同样会因过压损坏：Littelfuse 演示中最大电压 16 VDC 的 16R 系列用在 60 VDC 短路下失效，应选额定电压不低于该处最高电压的型号。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -163,7 +165,7 @@
 - `bench`（manual）· 电池 + 限流保护的短路测试台 — 按 UL/IEC 要求的方法做短路与过载，观察保险丝动作、板子温升与是否起火（需防护措施）
 
 **来源**
-- [AN-2162 Simple Success With Conducted EMI From DC-DC Converters (SNVA489C)](https://www.ti.com/lit/pdf/snva489) — Texas Instruments, app_note, §7 battery caution
+- [AN-2162 Simple Success With Conducted EMI From DC-DC Converters (SNVA489C)](https://www.ti.com/lit/pdf/snva489) — Texas Instruments, app_note, §6 LISN, CAUTION box (battery as source, series fuse)
 - [GDTs, MOVs & Fuses: Selecting the Appropriate Circuit Protection Component](https://www.ieee.li/pdf/viewgraphs/selecting_the_appropriate_circuit_protection_component.pdf) — Littelfuse, vendor_guide, Fuse Interrupted
 
 <a id="HVS-SCH-002"></a>
@@ -248,7 +250,7 @@
 
 **规则** 对 ELV 或不受安规约束的网络，按 IPC-2221B Table 6-1 随峰值工作电压设置最小导体间距：外层未涂覆（B2）、内层（B1）、外层涂覆（B4）；把这些值写入网络类的 clearance 规则，板厂最小线距作为下限。
 
-**依据** IPC-2221B 给出的是通用商用/工业板的推荐间距，随电压分段递增；5 V/12 V 板在 0–30 V 档，外层未涂覆间距只要 0.1 mm，小于板厂的最小线距，所以由板厂能力主导。
+**依据** IPC-2221B 给出的是通用商用/工业板的推荐间距，随电压分段递增；5 V/12 V 板在 0–30 V 档，外层未涂覆间距只要 0.1 mm，与板厂 1 oz 最小线距（JLCPCB 0.10 mm）相当，所以由板厂能力主导。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -335,14 +337,14 @@
 
 **规则** 危险电压网络之间及与其他网络之间的爬电距离，按「工作电压（rms）× 污染等级 × 材料组」查表，加强绝缘取表值的 2 倍；表值是下限，爬电距离不得小于对应的电气间隙；工作电压介于表中两档时取较高档（保守）或在标准允许时线性内插。
 
-**依据** 爬电对应表面电痕化风险，随电压、污染和材料 CTI 增大。下表值源自 UL 60950-1 Table 2N（IEC 62368-1 Table 17 对 30 kHz 以下相同），用于功能、基本、附加绝缘。可与 TI 的例子交叉验证：PD2 材料组 IIIa 在 800 Vrms 对应 8 mm，与 SLYY063 所述 8 mm 爬电封装在 CTI-IIIa 下 800 Vrms 一致。
+**依据** 爬电对应表面电痕化风险，随电压、污染和材料 CTI 增大。下表值取自 smps.us 对 UL 60950-1 Table 2N 的转载（该站称 IEC 62368-1 Table 17 在 30 kHz 以下相同），用于功能、基本、附加绝缘；本库未读到任何标准原文。交叉验证：已将 smps.us 的全部数据（7 列 × 21 档）与本表逐项比对一致；其中 63、400、800、1000 Vrms 四行另与 TI SLUP419 Table 3（IEC 60664-1 Table F.4 子集）逐项一致，其余各行只有 smps.us 一个来源。TI 的例子也吻合：PD2 材料组 IIIa 在 800 Vrms 对应 8 mm，与 SLYY063 所述 8 mm 爬电封装在 CTI-IIIa 下 800 Vrms 一致。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
 | `creepage_table_basic_insulation` | qualitative | 单位 mm。Vrms 档位 = 10, 12.5, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200, 250, 320, 400, 500, 630, 800, 1000。PD1（所有材料组）= 0.08, 0.09, 0.1, 0.11, 0.125, 0.14, 0.16, 0.18, 0.2, 0.22, 0.25, 0.28, 0.32, 0.42, 0.56, 0.75, 1.0, 1.3, 1.8, 2.4, 3.2。PD2 材料组 I = 0.4, 0.42, 0.45, 0.48, 0.5, 0.53, 0.56, 0.6, 0.63, 0.67, 0.71, 0.75, 0.8, 1.0, 1.25, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0。PD2 材料组 II = 0.4, 0.42, 0.45, 0.48, 0.5, 0.53, 0.8, 0.85, 0.9, 0.9, 1.0, 1.05, 1.1, 1.4, 1.8, 2.2, 2.8, 3.6, 4.5, 5.6, 7.1。PD2 材料组 III = 0.4, 0.42, 0.45, 0.48, 0.5, 0.53, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0, 6.3, 8.0, 10。PD3 材料组 I = 1.0, 1.05, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.5, 3.2, 4.0, 5.0, 6.3, 8.0, 10, 12.5。PD3 材料组 II = 1.0, 1.05, 1.1, 1.2, 1.25, 1.3, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.8, 3.6, 4.5, 5.6, 7.1, 9.0, 11, 14。PD3 材料组 III = 1.0, 1.05, 1.1, 1.2, 1.25, 1.3, 1.8, 1.9, 2.0, 2.1, 2.2, 2.4, 2.5, 3.2, 4.0, 5.0, 6.3, 8.0, 10, 12.5, 16。取自 smps.us 计算器的脚本数据，未取得标准原文 |
 | `creepage_pd2_mg3_250vrms` | >= 2.5 mm | 典型 230 V 市电（污染等级 2，材料组 IIIa/IIIb）基本绝缘；加强绝缘 5.0 mm |
 | `creepage_pd2_mg1_250vrms` | >= 1.25 mm | 同上，材料组 I；材料组 II 为 1.8 mm；污染等级 3 材料组 III 为 4.0 mm |
-| `creepage_pd2_any_group_12v5` | >= 0.42 mm | ELV 12 V 功能绝缘的参考值（污染等级 2）；对 5–12 V 板，板厂最小间距已大于此值 |
+| `creepage_pd2_any_group_12v5` | >= 0.42 mm | ELV 12 V 功能绝缘的参考值（污染等级 2，12.5 V 档，各材料组相同）；注意 0.42 mm 大于板厂 1 oz 最小线距（JLCPCB 0.10 mm，见 HVS-STK-002），不会被板厂能力自动满足，需要时要在 DRC 里单独设置 |
 | `reinforced_creepage_multiplier` | == 2 ratio | 加强绝缘对表值加倍 |
 
 **验证**
@@ -354,26 +356,29 @@
 **来源**
 - [PCB Creepage Calculator (UL 60950-1 Table 2N / IEC 62368-1 Table 17 数据)](https://pcbdesign.smps.us/creepage.html) — smps.us (Lazar Rozenblat), tool_doc
 - [High-voltage reinforced isolation - definitions and test methodologies (SLYY063)](https://www.ti.com/lit/pdf/slyy063) — Texas Instruments, app_note, Comparative tracking index
+- [Demystifying Clearance and Creepage Distance for High-Voltage End Equipment (SLUP419)](https://www.ti.com/lit/pdf/slup419) — Texas Instruments, app_note, Table 3 (subset of IEC 60664-1 Table F.4: 63/400/800/1000 V)
 - IEC 62368-1 / UL 62368-1 clauses 5.4.2, 5.4.3, Table 17（IEC 62368-1 §5.4.2 clearances、§5.4.3 creepage、Table 17；IEC 60664-1（本研究未取得原文）） — standard
 
 <a id="HVS-RTE-002"></a>
 #### HVS-RTE-002 · 开槽延长爬电距离，槽宽大于 1 mm 且不削弱板子
 `should` · 可信度 `high` · 适用: isolation-barrier, creepage, slot
 
-**规则** 空间不够时可在危险侧与 SELV 侧之间铣槽或开沟来延长爬电路径：槽宽大于 1 mm；有效爬电 = 原爬电 + 槽宽 + 2 × 槽深（沟槽对爬电路径的增量按此计）；槽不得使板子在机械测试中失效。间隙（空气直线距离）不会因开槽而增加。
+**规则** 空间不够时可在危险侧与 SELV 侧之间铣槽或开沟来延长爬电路径：槽宽须不小于所属污染等级的最小值（污染等级 1/2/3 分别为 0.25 / 1.0 / 1.5 mm，据 TI SLUP419 Table 7 对 IEC 60664-1 的转述，非标准原文；TI SLLA284 与 smps.us 笼统写作「宽于 1 mm」，只对应污染等级 2）；有效爬电 = 原爬电 + 槽宽 + 2 × 槽深（TI SLLA284 原式）；槽不得使板子在机械测试中失效。间隙（空气直线距离）不会因开槽而增加。
 
-**依据** 宽度不足的窄槽会被污物桥接，所以标准对沟槽宽度有最小要求；槽只改变沿表面的路径，不改变空气中的直线距离。
+**依据** 宽度不足的窄槽会被污物桥接，所以标准对沟槽宽度有最小要求，且污染等级越高要求越宽；槽只改变沿表面的路径，不改变空气中的直线距离。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `slot_width_for_creepage` | > 1 mm | TI SLLA284 §4.3 对「groove」的要求；smps.us 同样称宽于 1 mm 的槽可增加爬电。JLCPCB 非金属化槽最小宽度 1.0 mm，正好在边界上，设计时取更大值（如 1.2–1.5 mm 为本研究的建议，来源未给） |
+| `slot_width_for_creepage` | > 1 mm | 污染等级 2 的下限：TI SLLA284 §4.3 对「groove」写作宽于 1 mm（TI SLUP419 Table 7 写作最小 1.0 mm）；smps.us 同样称宽于 1 mm 的槽可增加爬电。JLCPCB 非金属化槽最小宽度 1.0 mm，正好在边界上，设计时取更大值（如 1.2–1.5 mm 为本研究的建议，来源未给） |
+| `slot_width_for_creepage_pd3` | >= 1.5 mm | 污染等级 3 的槽宽下限（TI SLUP419 Table 7 转述 IEC 60664-1；污染等级 1 为 0.25 mm）；JLCPCB 能做的 1.0 mm 槽不满足此值 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew Python（读 Edge.Cuts 的槽轮廓） — 槽宽 > 1 mm；沿板面的最短路径绕槽计算爬电：原路径 + 槽宽 + 2×槽深 ≥ 要求值；槽两端离铜的距离满足间隙要求
+- `geometry_script`（partial）· pcbnew Python（读 Edge.Cuts 的槽轮廓） — 槽宽 > 1 mm（污染等级 3 时 ≥ 1.5 mm）；沿板面的最短路径绕槽计算爬电：原路径 + 槽宽 + 2×槽深 ≥ 要求值（此为 TI 原式，「原路径」是否已含槽宽未在原文中说明，保守起见只计 2×槽深）；槽两端离铜的距离满足间隙要求
 - `drc`（partial）· KiCad creepage 约束（见 HVS-VER-001） — 加了槽后重新跑 DRC，确认 KiCad 是否把槽计入爬电路径；若未计入，用上面的脚本结果作为准绳
 
 **来源**
 - [Digital Isolator Design Guide (SLLA284)](https://www.ti.com/lit/pdf/slla284) — Texas Instruments, app_note, §4.3, Figure 4-2
+- [Demystifying Clearance and Creepage Distance for High-Voltage End Equipment (SLUP419)](https://www.ti.com/lit/pdf/slup419) — Texas Instruments, app_note, Exceptions When You Cannot Meet the Required Creepage and Clearance, Table 7
 - [PCB Creepage Calculator](https://pcbdesign.smps.us/creepage.html) — smps.us (Lazar Rozenblat), tool_doc
 - [JLCPCB PCB Capabilities](https://jlcpcb.com/capabilities/Capabilities) — JLCPCB, vendor_guide, Drilling: Min. Non-Plated Slots 1.0 mm
 
@@ -387,7 +392,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `clearance_table_source` | qualitative | 间隙应查 IEC 60664-1 的脉冲耐压—间隙表或 IEC 62368-1 对应表；本研究未取得这些表。常见的 230 Vac、过压类别 II 数值（基本绝缘间隙约 1.5 mm，加强约 3 mm）来自经验，未经核实，认证前必须核对标准 |
+| `clearance_table_source` | qualitative | 间隙应查 IEC 60664-1 Table F.1/F.2 的脉冲耐压—间隙表，或 IEC 62368-1 Table 10；本研究未取得标准原文，只读到 TI SLUP419 的子集转述（污染等级 2、海拔 ≤ 2000 m）：230 V 线对中性、过压类别 II 的额定脉冲电压为 2.5 kV（基本绝缘）、4 kV（加强绝缘，高一档）。该文 Table 5：2.5 kV → 1.5 (1.8) mm，4.0 kV → 3.0 (3.8) mm，6.0 kV → 5.5 (7.9) mm，括号内为 IEC 62368-1 Table 10 的对应值；正文称 IEC 62368-1 对 2.5 kV 档的加强绝缘需 3.6 mm，比 IEC 60664-1 F.2 在 4 kV 档的 3.0 mm 更严。因此常见的 230 V、过压类别 II 数值（基本约 1.5 mm、加强约 3 mm）只对应 IEC 60664-1，按 IEC 62368-1 应取更大值。以上均为第三方转述，认证前必须核对适用标准及版本 |
 
 **验证**
 - `review`（manual）· 绝缘图 + 标准查表 — 对每道边界写出过压类别、电网电压、脉冲耐压、间隙查表值和海拔修正，最后取 max(间隙, 爬电)
@@ -397,6 +402,7 @@
 - [Isolation Glossary (SLLA353A)](https://www.ti.com/lit/pdf/slla353) — Texas Instruments, app_note, Overvoltage categories
 - [High-voltage reinforced isolation - definitions and test methodologies (SLYY063)](https://www.ti.com/lit/pdf/slyy063) — Texas Instruments, app_note
 - [PCB Creepage Calculator](https://pcbdesign.smps.us/creepage.html) — smps.us (Lazar Rozenblat), tool_doc
+- [Demystifying Clearance and Creepage Distance for High-Voltage End Equipment (SLUP419)](https://www.ti.com/lit/pdf/slup419) — Texas Instruments, app_note, Tables 4-5 (subsets of IEC 60664-1 F.1/F.2 with IEC 62368-1 Table 10 values), 5,000 m example
 - [KiCad 9.0 PCB Editor manual - custom design rules](https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html) — KiCad, tool_doc, physical_clearance
 
 ## 平面与铺铜（plane_pour）

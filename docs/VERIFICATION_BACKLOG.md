@@ -95,7 +95,7 @@ full 62 · partial 22 · manual 1
 | [GEN-STK-004](../skills/ee-general-pcb/references/rules.md#GEN-STK-004) | 2 层板：底层做地参考，元件只放顶层 | should | (rule "no_bottom_parts" (layer B.Cu) (constraint disallow footprint)) 禁止底层元件；底层走线统计用 geometry_script |
 | [GEN-STK-006](../skills/ee-general-pcb/references/rules.md#GEN-STK-006) | 网络类宽度只是默认值，必须用自定义规则落成 DRC | should | 加入 (version 1) (rule power_width (layer outer) (condition "A.hasNetclass('Power')") (constraint track_width (min 0.5mm))) 与 (rule power_via (condition "A.hasNetclass('Power') && A.Type == 'Via'") (constraint via_diameter… |
 | [HSD-NET-003](../skills/ee-high-speed/references/rules.md#HSD-NET-003) | 在 .kicad_dru 中为高速网络类写长度/偏斜/间距规则 | should | 规则文件语法通过；含目标规则的板文件 DRC 输出里没有 'Skew between tracks out of range'、'Track length out of range'、'Differential pair gap out of range'、'Differential uncoupled length too long'、'Too many or too few vias on a connection' 违规 |
-| [HSD-RTE-001](../skills/ee-high-speed/references/rules.md#HSD-RTE-001) | 差分对全程对称平行，未耦合段只允许出现在引出和连接器处 | should | 对差分网络类设 diff_pair_gap (min,max) 与 diff_pair_uncoupled (max 6.35mm)（0.25 inch）；PCIe 引脚入口处的未耦合段按 AN10373 另设 max 45 mil；DRC 无 'Differential uncoupled length too long' / 'Differential pair gap out of range' |
+| [HSD-RTE-001](../skills/ee-high-speed/references/rules.md#HSD-RTE-001) | 差分对全程对称平行，未耦合段只允许出现在引出和连接器处 | should | 对差分网络类设 diff_pair_gap (min,max) 与 diff_pair_uncoupled (max 6.35mm)（0.25 inch）；PCIe 引脚入口处使用多弯折的未耦合段按 AN10373 另设 max 45 mil；DRC 无 'Differential uncoupled length too long' / 'Differential pair gap out of range' |
 | [HSD-RTE-004](../skills/ee-high-speed/references/rules.md#HSD-RTE-004) | 按接口取线对间距并避开时钟线，相邻层正交布线 | should | 为 USB/PCIe/以太网等网络类写 (constraint clearance (min <值>))：对时钟/周期类 ≥ 50 mil，对其它类 ≥ 30 mil，对间 ≥ 5W；DRC 无 clearance 违规 |
 | [HSD-RTE-008](../skills/ee-high-speed/references/rules.md#HSD-RTE-008) | 限制每条高速线的过孔数，两线保持一致 | should | 为各接口网络类写 (constraint via_count (max N))，N 取 parameters；DRC 无 'Too many or too few vias on a connection' |
 | [HSD-RTE-009](../skills/ee-high-speed/references/rules.md#HSD-RTE-009) | 高速线总长不超过接口与器件的限值 | should | 为各接口网络类写 (constraint length (max <限值>))，DRC 无 'Track length out of range'；注意 KiCad 长度调谐器默认把过孔的层间高度计入长度（Board Setup > Constraints），DRC 与 Net Inspector 的口径可能不同，见 HSD-VER-002 |
@@ -227,13 +227,13 @@ full 106 · partial 104 · manual 0
 | [DFM-VER-003](../skills/ee-dfm/references/rules.md#DFM-VER-003) | 下单前核对 CPL 与板文件的几何一致 | must | 对每个位号：/X−X'/ ≤ 0.01 mm、/Y−Y'/ ≤ 0.01 mm、旋转一致（含偏移表）；点在 Edge.Cuts 多边形内；Layer 与封装层一致 |
 | [EMC-FLR-003](../skills/ee-emc-esd/references/rules.md#EMC-FLR-003) | 连接器到 TVS 之间划 ESD 入口禁布区 | must | 取每个连接器引脚焊盘到对应 TVS 焊盘之间的走线包络，向外扩 2 mm（2 mm 为经验值，来源未给）；包络内不得出现不属于该受保护网络的铜（走线、过孔、焊盘），否则报错 |
 | [EMC-PLC-001](../skills/ee-emc-esd/references/rules.md#EMC-PLC-001) | TVS 紧靠连接器引脚，被保护 IC 远离 TVS | must | 对每个 ESD 保护网络：测连接器焊盘→TVS 信号焊盘的走线路径长度 d1，TVS 信号焊盘→被保护 IC 引脚的路径长度 d4，要求 d4 > d1，并输出 d1（越短越好，建议 d1 ≤ 10 mm 作评审阈值，该阈值为经验值） |
-| [EMC-RTE-001](../skills/ee-emc-esd/references/rules.md#EMC-RTE-001) | 每条快速信号下方保持连续回流路径 | must | 沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖 |
+| [EMC-RTE-001](../skills/ee-emc-esd/references/rules.md#EMC-RTE-001) | 每条快速信号下方保持连续回流路径 | must | 沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充；0.5 mm、1 mm 均为本库经验取值，来源未给）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖 |
 | [EMC-RTE-003](../skills/ee-emc-esd/references/rules.md#EMC-RTE-003) | ESD 入口走线直通 TVS，无 stub、无过孔、拐角 ≤45° | must | 对每个 ESD 保护网络建走线连通图：连接器焊盘到 TVS 信号焊盘之间过孔数 = 0；该路径上除 TVS 外没有其他分支；各线段拐角 ≤ 45° |
-| [EMC-RTE-004](../skills/ee-emc-esd/references/rules.md#EMC-RTE-004) | TVS 地脚接同层地铺铜，紧邻过孔缝合到相邻地层 | must | 对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜） |
+| [EMC-RTE-004](../skills/ee-emc-esd/references/rules.md#EMC-RTE-004) | TVS 地脚接同层地铺铜，紧邻过孔缝合到相邻地层 | must | 对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜；2 mm、0.5 mm 均为本库经验值，来源未给） |
 | [GEN-FLR-007](../skills/ee-general-pcb/references/rules.md#GEN-FLR-007) | 板框闭合，铜到板边满足板厂最小间距 | must | 对 Edge.Cuts 取闭合多边形，计算所有铜对象（线、焊盘、铺铜填充）到其最小距离，通过判据 ≥ 0.2 mm |
 | [GEN-PLN-009](../skills/ee-general-pcb/references/rules.md#GEN-PLN-009) | 天线下方和周围所有铜层禁布，铺铜前先画禁布区 | must | 取所有铜层的走线、过孔、焊盘与区域填充多边形，检查是否有任何顶点 / 线段落入天线禁布矩形；通过判据：数量 = 0 |
 | [GEN-RTE-002](../skills/ee-general-pcb/references/rules.md#GEN-RTE-002) | 信号线不得跨越参考平面的分割槽或缝隙 | must | 对所有非电源网络的每个走线段，取其中点所在位置在参考层的填充：若不在任何 GND 填充内（或线段穿越填充边界），则标为“跨槽”；通过判据：跨槽线段数 = 0（桥接位置白名单除外） |
-| [HSD-RTE-005](../skills/ee-high-speed/references/rules.md#HSD-RTE-005) | 高速线全程走在连续参考面上，远离参考面边缘和空洞 | must | 对每个高速网络的每段走线（外层），取相邻内层/对面层的 GND 铜区：线中心线必须在铜内，且到铜区边缘/空洞边缘的距离 ≥ max(90 mil, 1.5W) （边缘用 90 mil，空洞用 1.5W）；输出违反的线段；换层段检查两层 GND 是否同网络 |
+| [HSD-RTE-005](../skills/ee-high-speed/references/rules.md#HSD-RTE-005) | 高速线全程走在连续参考面上，远离参考面边缘和空洞 | must | 对每个高速网络的每段走线（外层），取相邻内层/对面层的 GND 铜区：线中心线必须在铜内，且到参考面外缘的距离 ≥ 90 mil，到参考面内空洞边缘的距离 ≥ 1.5W（两者是不同的判据，不要取 max；SMD 焊盘处的挖空除外）；输出违反的线段；换层段检查两层 GND 是否同网络 |
 | [HSD-STK-001](../skills/ee-high-speed/references/rules.md#HSD-STK-001) | 高速线紧邻完整 GND 参考面，外层微带优先 | must | 对每个高速网络的每一段走线，取相邻内层（叠层表）上投影区域的铜填充：该区域必须完全被同一网络（GND）的铜覆盖；输出被缺铜或被不同网络覆盖的线段长度，通过判据为 0 |
 | [HVS-FLR-001](../skills/ee-hv-safety/references/rules.md#HVS-FLR-001) | 定义隔离栅禁布区，任何层都不得有铜跨越 | must | 枚举所有层上与禁布区相交的铜对象，除白名单跨栅元件焊盘外应为 0 |
 | [HVS-PLC-001](../skills/ee-hv-safety/references/rules.md#HVS-PLC-001) | 焊盘不得缩短隔离器件封装的爬电与间隙 | must | 对每个隔离器件，取输入侧焊盘与输出侧焊盘之间的最短距离（含周围铜皮、丝印无关），与要求的爬电值比较 |
@@ -277,16 +277,16 @@ full 106 · partial 104 · manual 0
 | [GEN-PLN-005](../skills/ee-general-pcb/references/rules.md#GEN-PLN-005) | MCU 下方做地岛，去耦和晶振的地接在上面 | should | 取 MCU（或模块 GND 焊盘区）外包框向外扩 6.35 mm 形成矩形，计算其内底层 GND 填充面积占比，通过判据 ≥ 90%（占比阈值为经验值）；检查去耦电容 GND 焊盘是否位于该矩形内 |
 | [GEN-PLN-006](../skills/ee-general-pcb/references/rules.md#GEN-PLN-006) | 地铜用缝合过孔连接，间距不超过 λ/20 | should | 取 GND 过孔坐标，对射频区域和板周边路径（沿板边内缩 1 mm 的多边形）上相邻 GND 过孔的最大间距，通过判据 ≤ λ_eff/20（λ_eff = c / (f·√εeff)，εeff 取 2.8，f 取最高关注频率；2.45 GHz 时约 3.7 mm）。该 εeff 与 Sierra 示例（1 GHz→9 mm）反推一致，为推导值 |
 | [GEN-PLN-007](../skills/ee-general-pcb/references/rules.md#GEN-PLN-007) | 去掉死铜和孤岛，不让铺铜悬空 | should | 对每个 zone 的每个填充连通块，检查是否至少含一个同网络焊盘 / 过孔 / 走线；通过判据：无孤块 |
-| [GEN-PLN-010](../skills/ee-general-pcb/references/rules.md#GEN-PLN-010) | 晶振下方做完整地参考，区域内不放其他网络的铜 | should | 取晶振 courtyard 外扩 1 mm，检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0 |
-| [GEN-PLN-011](../skills/ee-general-pcb/references/rules.md#GEN-PLN-011) | 芯片底部接地焊盘用多个过孔接地平面 | should | 取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：芯片 EPAD ≥ 9（ESP32-C3 QFN 芯片），模块 EPAD 按模块数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008） |
+| [GEN-PLN-010](../skills/ee-general-pcb/references/rules.md#GEN-PLN-010) | 晶振下方做完整地参考，区域内不放其他网络的铜 | should | 取晶振 courtyard 外扩 1 mm（外扩量为经验取值），检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0 |
+| [GEN-PLN-011](../skills/ee-general-pcb/references/rules.md#GEN-PLN-011) | 芯片底部接地焊盘用多个过孔接地平面 | should | 取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：ESP32-C3 芯片 EPAD ≥ 9，其他芯片 / 模块 EPAD 按各自数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008） |
 | [GEN-RTE-001](../skills/ee-general-pcb/references/rules.md#GEN-RTE-001) | 每条信号线下方保持连续的回流参考铜 | should | 对 Clock / PWM / 高速网络的每个走线段每 0.5 mm 取采样点，在其参考层（2 层板为对面铜层；多层板为相邻平面层）查点是否落在 GND 填充内，且以采样点为中心 ±2h 范围的填充覆盖率 ≥ 90%；通过判据：违规采样点占比 ≤ 5%（占比阈值为经验值）。h 取叠层介质厚度（JLC 1.6 mm 2 层板约 1.5 mm） |
 | [GEN-RTE-004](../skills/ee-general-pcb/references/rules.md#GEN-RTE-004) | 电源线与地线并行贴近，环路长宽比不超过 3:1 | should | 对每个 IC 的电源网络，沿从稳压器 / 去耦电容到 IC 电源引脚的连接取每段走线的长度 / 宽度比（宽度取该段最窄处），通过判据 ≤ 3；并检查该段正下方相邻层有无 GND 铜（≥ 90% 长度，经验阈值） |
 | [GEN-RTE-008](../skills/ee-general-pcb/references/rules.md#GEN-RTE-008) | 快信号避免 T 形分支和长残桩 | should | 对 Clock 类网络计算图中度 ≥ 3 的节点（分支点），并量每个引出段长度；通过判据：时钟网络分支点数 = 0，或引出段长度 ≤ 项目设定值（建议 ≤ 2 mm，经验阈值） |
 | [GEN-RTE-009](../skills/ee-general-pcb/references/rules.md#GEN-RTE-009) | 敏感信号和时钟尽量不打过孔 | should | 统计各敏感网络的过孔数，晶振 OSC 网络必须为 0 |
 | [GEN-RTE-010](../skills/ee-general-pcb/references/rules.md#GEN-RTE-010) | 干扰源与敏感线间距至少 3 倍线宽 | should | 对 Clock / PWM 网络与 Sensitive 网络的每对走线，找平行（夹角 < 10°）且间距 < 3W 的段，累计长度；通过判据：累计长度 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值） |
 | [GEN-RTE-013](../skills/ee-general-pcb/references/rules.md#GEN-RTE-013) | 晶振下方不走信号，时钟走线周围用地包裹 | should | 取晶振 courtyard 区域，检查所有层中是否存在非 OSC / GND 网络的走线、过孔、铜皮；检查 OSC 网络上的测试点焊盘（Fabrication_Property == 'Test point pad' 或位号 TP*）数量必须为 0；通过判据：违规项 = 0 |
-| [GEN-RTE-014](../skills/ee-general-pcb/references/rules.md#GEN-RTE-014) | 连接器先到 TVS 再到 IC，路径短直无桩无过孔 | should | 对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足 |
-| [GEN-SCH-011](../skills/ee-general-pcb/references/rules.md#GEN-SCH-011) | 在原理图中为电源轨和关键信号预留测试点 | should | 每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近焊盘中心距 >= 1.27 mm，与板边 >= 3.175 mm，全部在同一面。夹具数值以实际测试厂要求为准。 |
+| [GEN-RTE-014](../skills/ee-general-pcb/references/rules.md#GEN-RTE-014) | 连接器先到 TVS 再到 IC，路径短直无桩无过孔 | should | 对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络；2 mm 为经验阈值，SLVA680A 只要求不相邻、未给距离）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足 |
+| [GEN-SCH-011](../skills/ee-general-pcb/references/rules.md#GEN-SCH-011) | 在原理图中为电源轨和关键信号预留测试点 | should | 每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近的其他测试点中心距 >= 1.27 mm（首选 1.9 mm），与板边 >= 3.175 mm（首选 5 mm），与最近元件 >= 1.0 mm（首选 1.5 mm），全部在同一面。夹具数值以实际测试厂要求为准。 |
 | [GEN-STK-002](../skills/ee-general-pcb/references/rules.md#GEN-STK-002) | 4 层板信号层贴近邻接平面，两平面间用厚芯板 | should | 取 F.Cu 与 In1.Cu 之间介质厚度 d1、B.Cu 与 In2.Cu 之间 d3、In1 与 In2 之间 d2；通过判据 d1 < 0.254 mm 且 d3 < 0.254 mm 且 d2 > 1.016 mm |
 | [GEN-STK-003](../skills/ee-general-pcb/references/rules.md#GEN-STK-003) | 每个走线层邻接参考平面，高频线埋在两平面之间 | should | 遍历叠层，对每个含 ≥1 条走线的铜层，判断上或下相邻铜层是否为 GND / PWR 平面层；对 6 层板判断是否出现相邻两信号层且外侧无平面（SIG-SIG-PLANE-PLANE-SIG-SIG 模式） |
 | [GEN-STK-004](../skills/ee-general-pcb/references/rules.md#GEN-STK-004) | 2 层板：底层做地参考，元件只放顶层 | should | 统计 B.Cu 上非 GND 网络的走线总长与焊盘数（应接近 0，仅允许少量必要跳线）；对每条顶层高速 / 时钟网络采样（每 1 mm 一点），检查该点正下方 B.Cu 是否落在 GND 填充区内，通过判据 ≥ 95% 的采样点在 GND 铜内（95% 为经验阈值） |
@@ -306,7 +306,7 @@ full 106 · partial 104 · manual 0
 | [PWR-RTE-008](../skills/ee-power/references/rules.md#PWR-RTE-008) | 3.3 V 电源走线按 Espressif 最小线宽 | should | 对 +3V3 网络从稳压器到模块各电源引脚的全路径取最窄处，要求 >= 25 mil(0.635 mm)；VDD3P3 对应网络段 >= 20 mil；输出列表。 |
 | [RF-ARC-006](../skills/ee-rf/references/rules.md#RF-ARC-006) | GNSS 无源天线馈线不超过 10 cm，更长用有源天线 | should | 取 GNSS 接收机 RF_IN 网络，累加从天线焊盘/连接器到 RF_IN 引脚的走线长度，<= 100 mm；超过则必须改为有源天线并核对偏置与 DC 隔离。 |
 | [RF-PLC-002](../skills/ee-rf/references/rules.md#RF-PLC-002) | 射频电源脚去耦：小值最近、同层、各自接地过孔 | should | 对每个射频电源脚找出所有去耦电容：按容值升序，到引脚的距离应不递减；电容与 IC 同层； 每个电容 GND 焊盘最近的 GND 过孔仅连接 1 个元件焊盘（无共用）。 |
-| [RF-PLN-002](../skills/ee-rf/references/rules.md#RF-PLN-002) | 接地缝合过孔间距不超过 λ/20（按介质内波长） | should | 沿射频线两侧及射频区边缘的顶层 GND 铜边界，取相邻 GND 过孔间距，最大值 <= 3 mm（保守取 λg/20 向下取整）；大块地铜内部任意点到最近 GND 过孔 <= 5 mm。 |
+| [RF-PLN-002](../skills/ee-rf/references/rules.md#RF-PLN-002) | 接地缝合过孔间距不超过 λ/20（按介质内波长） | should | 沿射频线两侧及射频区边缘的顶层 GND 铜边界，取相邻 GND 过孔间距，最大值 <= 3 mm（保守取 λg/20 向下取整）；大块地铜内部相邻 GND 过孔的中心距 <= 5 mm（Nordic：至少每 5 mm 一个过孔，是间距而非到最近过孔的距离）。 |
 | [RF-RTE-002](../skills/ee-rf/references/rules.md#RF-RTE-002) | 射频线尽量短，无短截线、分支和测试点 | should | RF 网络必须是链状拓扑：每个节点只连接链中相邻两个焊盘和至多一个并联元件；分支长度（非主链 track）为 0；无 TestPoint 封装挂在 RF 网络上。 |
 | [RF-RTE-003](../skills/ee-rf/references/rules.md#RF-RTE-003) | 射频线拐弯用圆弧或 135° 折线，不画未切角的直角 | should | 遍历射频 track 相邻线段，转角 <= 45°（内角 >= 135°）；圆弧段用多段近似，每段转角 <= 45°。 |
 | [RF-RTE-004](../skills/ee-rf/references/rules.md#RF-RTE-004) | 射频路径上不打过孔 | should | RF 网络上的 via 数量 == 0。 |
@@ -317,7 +317,7 @@ full 106 · partial 104 · manual 0
 | [EMC-PLN-002](../skills/ee-emc-esd/references/rules.md#EMC-PLN-002) | 板边地环与缝合过孔间距小于 λ/20 | consider | 沿板边地环统计相邻缝合过孔的中心距，最大值 < λ/20（λ 按 f_max 与 εr 估算，f_max 由需求给定） |
 | [EMC-RTE-006](../skills/ee-emc-esd/references/rules.md#EMC-RTE-006) | ESD 路径和快沿线避免 90° 拐角（有条件） | consider | 对 ESD 入口网络和被标记为快沿的网络，列出所有拐角角度，> 45° 者报警；其他网络仅统计不判失败 |
 | [GEN-PLC-007](../skills/ee-general-pcb/references/rules.md#GEN-PLC-007) | 晶振周围留出隔离区，不放无关元件 | consider | 对每个晶振，枚举所有与它无电气关联的元件，量晶振外包框到其外包框最短距离，并检查晶振 courtyard 内是否有他网络的走线 / 过孔；通过判据：没有他网络走线 / 过孔进入晶振 courtyard，无关元件间距 ≥ 项目设定值（TI 给 25.4 mm，紧凑板按评估放宽） |
-| [GEN-PLC-008](../skills/ee-general-pcb/references/rules.md#GEN-PLC-008) | 串联电阻靠近驱动端放置 | consider | 对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载 |
+| [GEN-PLC-008](../skills/ee-general-pcb/references/rules.md#GEN-PLC-008) | 串联电阻靠近驱动端放置 | consider | 对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上；此为识别用的宽范围，宽于 parameters 中 TI 建议的输出脚 50~100 Ω），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载 |
 | [GEN-RTE-006](../skills/ee-general-pcb/references/rules.md#GEN-RTE-006) | MCU 供电走线按厂商给的最小宽度 | consider | 对 3V3 主网络的走线段最窄宽度取 min，应 ≥ 0.635 mm（模块板为 3V3 到模块电源引脚之间的走线）；其它电源网络 ≥ 0.254 mm；跨层处并联过孔 ≥ 2 |
 | [GEN-RTE-007](../skills/ee-general-pcb/references/rules.md#GEN-RTE-007) | 拐角默认用 45° 或圆弧，90° 并非一概有害 | consider | 对每对共端点的线段计算方向变化角，转角 ≥ 80° 视为 90° 拐角；通过判据（严格集合：RF / 快速 / ESD 路径网络类）：90° 拐角数 = 0；普通网络仅报告数量不判失败 |
 | [GEN-RTE-012](../skills/ee-general-pcb/references/rules.md#GEN-RTE-012) | 噪声走线不放在板子最外沿 | consider | 取 Clock / PWM / Switching 网络走线到 Edge.Cuts 的最短距离，通过判据 ≥ 项目设定值（建议 ≥ 3 mm，经验阈值）；回流平面（GND 铜）应延伸到走线外至少 2h（见 GEN-RTE-001） |
@@ -338,7 +338,7 @@ full 8 · partial 88 · manual 0
 | ID | 规则 | 级别 | 检查 |
 |---|---|---|---|
 | [PWR-VER-001](../skills/ee-power/references/rules.md#PWR-VER-001) | 开关电源环路增益相位裕量与穿越频率签核 | must | 读增益 0 dB 的频率 fc 与此处相位裕量 PM、相位 -180 度处的增益裕量 GM；用 .step 扫描 Cout(C_eff，见 PWR-SCH-006)、ESR、Iload、Vin 的所有极值角落，全部满足 PM >= 45 度、GM >= 6 dB、fc 在 [fsw/10, fsw/5] 内。 |
-| [PWR-VER-002](../skills/ee-power/references/rules.md#PWR-VER-002) | 负载阶跃响应与 LDO 稳定性的 SPICE 与实测 | must | 10%->90% 阶跃，上升/下降时间 <= 1 us(初值)，读 Vout 最大偏差 dV 与稳定时间，要求 dV 在系统允许范围内且振铃至少 3 个周期内衰减；扫描 Cout 极值。 |
+| [PWR-VER-002](../skills/ee-power/references/rules.md#PWR-VER-002) | 负载阶跃响应与 LDO 稳定性的 SPICE 与实测 | must | 10%->90% 阶跃，上升/下降时间 <= 1 us(初值)，读 Vout 最大偏差 dV 与稳定时间，要求 dV 在系统允许范围内且初始尖峰之后振铃不超过 4 次（SLVA115A：通常 4 个振铃以内表示相位裕量足够）；扫描 Cout 极值。 |
 | [PWR-VER-004](../skills/ee-power/references/rules.md#PWR-VER-004) | 电机启动/堵转期间核算电源轨跌落与欠压余量 | must | 5 V 源内阻 + 线缆 + PPTC(热态最大电阻) + 母线电容(降额)；电机堵转 1 s，同时 Wi-Fi 脉冲 0.35 A，读 3.3 V 最低值与 LDO 的 Vin-Vout，要求 >= 3.0 V 且 Vin-Vout >= 压差(PWR-ARC-003)。 |
 | [EMC-SCH-005](../skills/ee-emc-esd/references/rules.md#EMC-SCH-005) | 磁珠要在噪声频段呈电阻性，且与电容的 LC 需阻尼 | should | AC 扫描 IC 侧电压对输入噪声的传递函数，任何频点增益不得 > 0 dB（无放大），并列出谐振频率 |
 | [EMC-SCH-013](../skills/ee-emc-esd/references/rules.md#EMC-SCH-013) | 感性负载必须有续流/钳位路径 | should | 仿真关断瞬态，读开关管 Vds 峰值，须低于其 Vds 额定并留裕量 |
@@ -412,7 +412,7 @@ full 7 · partial 8 · manual 3
 |---|---|---|---|
 | [THM-ARC-002](../skills/ee-thermal/references/rules.md#THM-ARC-002) | 在最高环境温度下算每个发热件的结温 | must | 对每个器件计算 Tj，要求 Tj ≤ Tj,max − 余量；列出余量最小的 3 个器件 |
 | [THM-ARC-003](../skills/ee-thermal/references/rules.md#THM-ARC-003) | 线性稳压器的功耗按最坏输入电压和最大电流算 | must | PD = (Vin_max − Vout) × Iout_max；θJA,needed = (125 − Ta,max)/PD；要求 θJA,needed ≥ 板子 θJA,effective（见 THM-PLN-001 的铜皮面积表） |
-| [THM-ARC-006](../skills/ee-thermal/references/rules.md#THM-ARC-006) | MOSFET 导通损耗按热态 Rds(on) 算 | must | 例：2 A、热态 Rds(on) 约 48 mΩ × 1.4 ≈ 67 mΩ → P ≈ 0.27 W；θJA 125 °C/W 时温升约 34 °C；叠加 Ta,max 后 Tj < 150 °C 并有余量 |
+| [THM-ARC-006](../skills/ee-thermal/references/rules.md#THM-ARC-006) | MOSFET 导通损耗按热态 Rds(on) 算 | must | 例：2 A、热态 Rds(on) 约 48 mΩ × 1.5（取 1.43–1.56 的中间值）≈ 72 mΩ → P ≈ 0.29 W；θJA 125 °C/W 时温升约 36 °C；叠加 Ta,max 后 Tj < 150 °C 并有余量 |
 | [THM-MFG-001](../skills/ee-thermal/references/rules.md#THM-MFG-001) | 裸露焊盘的焊接面积与空洞要有上限并用 X 光验证 | should | 用 θJA 增加 4–19% 的悲观值重算 Tj，仍然满足限值 |
 | [THM-ARC-005](../skills/ee-thermal/references/rules.md#THM-ARC-005) | 高海拔使用时放大 θJA | consider | 把 θJA,effective 乘上目标海拔系数后重算 Tj，仍满足 THM-ARC-002 |
 | [THM-RTE-003](../skills/ee-thermal/references/rules.md#THM-RTE-003) | 用过孔阵列的并联热阻核算而不是凭感觉 | consider | R_array ≤ 热预算中分给过孔的份额；需要时说明为什么不用更多过孔或更厚镀铜 |

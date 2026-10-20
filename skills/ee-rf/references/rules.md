@@ -129,7 +129,7 @@
 
 **来源**
 - [AN91445 Antenna Design and RF Layout Guidelines](https://community.infineon.com/gfawx74859/attachments/gfawx74859/cnkbas/2308/1/Infineon-AN91445_Antenna_Design_and_RF_Layout_Guidelines-ApplicationNotes-v09_00-EN.pdf) — Infineon (Cypress), app_note, §3, §4, §8, §10 Table 5
-- [AN058 Antenna Selection Guide (SWRA161B)](https://www.ti.com/lit/pdf/swra161) — Texas Instruments, app_note, §4 Antenna Types, Table 3; §4.2 Chip Antennas
+- [AN058 Antenna Selection Guide (SWRA161B)](https://www.ti.com/lit/pdf/swra161) — Texas Instruments, app_note, §3.3 Table 1 (λ/4 = 3.1 cm at 2.4 GHz); §4 Antenna Types, Table 3; §4.2 Chip Antennas
 
 ## 符号封装库（library）
 
@@ -427,7 +427,7 @@
 | `module_position` | qualitative | 边缘或角落；Murata 对其模组称角落最佳、边缘中点不推荐 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew (KiCad bundled Python)，参见 ee-pcb-verify 的 geometry 检查器 — 取模组天线区（keepout rule area）外包框与 Edge.Cuts 比较：天线区至少一边悬出或贴近板边；天线区中心到最近板边的距离小于到板中心的距离； 天线区其余三侧无底板（cutout）或为 keepout。仓库契约把猫食机天线禁布区定为 x 18.75-47.25、y 0-14 mm（docs/cat-feeder/00-requirements.md，数值来源未单独核实）。
+- `geometry_script`（partial）· pcbnew (KiCad bundled Python)，参见 ee-pcb-verify 的 geometry 检查器 — 取模组天线区（keepout rule area）外包框与 Edge.Cuts 比较：天线区至少一边悬出或贴近板边；天线区中心到最近板边的距离小于到板中心的距离； 天线区其余三侧无底板（cutout）或为 keepout。尺寸以 Espressif 图 "Keepout Zone for ESP32-C3 Module's Antenna" 为准： 天线区高 6 mm（模组宽 18 mm），其左、右、上方的净空区各 >= 15 mm（图中 Min15；即约 48 x 21 mm 的净空区，其内底板挖空）； 猫食机板自己的禁布区取值须按此图核对（其仓库契约中的数值未在本库核实）。
 - `review`（manual）· 对照 Espressif 模组放置示意图 — 对照 Hardware Design Guidelines 中「Placement of ESP32-C3 Modules on Base Board」图，确认属于推荐位置。
 
 **来源**
@@ -595,7 +595,7 @@
 #### RF-RTE-001 · 射频线按 50 Ω 设计，线宽（及间隙）全程恒定
 `must` · 可信度 `high` · 适用: rf_trace, microstrip, cpwg
 
-**规则** 射频走线位于外层，50 Ω 特性阻抗，线宽恒定（CPWG 时间隙也恒定），不分支；仅天线馈点前极短一段（约 3 mm）可放宽线宽， 但线宽须与天线馈点一致；约 1 cm 以上的馈线必须按传输线（宽度 W）设计。
+**规则** 射频走线位于外层，50 Ω 特性阻抗，线宽恒定（CPWG 时间隙也恒定），不分支；仅天线馈点前极短一段（约 3 mm）可放宽线宽， 但线宽须与天线馈点一致；约 1 cm 以上的馈线应按传输线（宽度 W）设计（Infineon 的措辞是推荐）。
 
 **依据** 特性阻抗不连续处会产生反射；传输线越长，对阻抗恒定性的要求越高。
 
@@ -729,11 +729,11 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `via_pitch_max_fraction_of_wavelength` | <= 0.05 wavelength | Infineon：不超过 1/20 波长；按介质内波长 λg = c/(f·√εeff)，f=2.4835 GHz、εeff≈3.3 时 λg≈66 mm，1/20 约 3.3 mm；用 εr 4.3 则约 2.9 mm（自行核算） |
+| `via_pitch_max_fraction_of_wavelength` | <= 0.05 wavelength | Infineon §18.1/§20：不超过 1/20 波长，原文未说明是自由空间还是介质内波长（自由空间 λ/20 在 2.4835 GHz 约 6 mm）；AtlasPCB 的表按介质内波长（εr≈3.4）取 λ/20。本条取更严的介质内波长 λg = c/(f·√εeff)：f=2.4835 GHz、εeff≈3.3 时 λg≈66 mm，1/20 约 3.3 mm；用 εr 4.3 则约 2.9 mm（自行核算） |
 | `large_ground_area_via_pitch_max` | <= 5 mm | Nordic nRF52 指南：大面积地铜上至少每 5 mm 一个过孔 |
 
 **验证**
-- `geometry_script`（full）· pcbnew (KiCad bundled Python) — 沿射频线两侧及射频区边缘的顶层 GND 铜边界，取相邻 GND 过孔间距，最大值 <= 3 mm（保守取 λg/20 向下取整）；大块地铜内部任意点到最近 GND 过孔 <= 5 mm。
+- `geometry_script`（full）· pcbnew (KiCad bundled Python) — 沿射频线两侧及射频区边缘的顶层 GND 铜边界，取相邻 GND 过孔间距，最大值 <= 3 mm（保守取 λg/20 向下取整）；大块地铜内部相邻 GND 过孔的中心距 <= 5 mm（Nordic：至少每 5 mm 一个过孔，是间距而非到最近过孔的距离）。
 - `em_sim`（partial）· openEMS 或 2.5D 求解器 — 扫 CPWG 过孔间距，S21 在 2.4 GHz 频段内无谐振陷波。
 
 **来源分歧** 间距说法不一：Infineon 与 AtlasPCB 用 λ/20，部分文章用 λ/10，Nordic 给 5 mm（约为 2.4 GHz 介质内波长的 1/13）。 取舍：射频线两侧取 λg/20（约 3 mm），其他大面积地铜取 5 mm；以更严者为准。
@@ -902,7 +902,7 @@
 
 **来源**
 - [Simple Patch Antenna - openEMS tutorial](https://openems.readthedocs.io/en/latest/python/openEMS/Tutorials/Simple_Patch_Antenna.html) — openEMS, tool_doc
-- [AN058 Antenna Selection Guide (SWRA161B)](https://www.ti.com/lit/pdf/swra161) — Texas Instruments, app_note, §3.5 Antenna Performance Considerations
+- [AN058 Antenna Selection Guide (SWRA161B)](https://www.ti.com/lit/pdf/swra161) — Texas Instruments, app_note, §4.1.1 TI Antenna Reference Designs (PCB antenna design usually needs a simulation tool); §8.2 EM Simulation Tools
 - [ESP32-C3 PCB Layout Design - RF Matching Network](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/pcb-layout-design.html) — Espressif Systems, vendor_guide, RF
 
 <a id="RF-VER-005"></a>

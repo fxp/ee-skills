@@ -124,7 +124,7 @@
 | [GEN-PLN-007](../../skills/ee-general-pcb/references/rules.md#GEN-PLN-007) | 去掉死铜和孤岛，不让铺铜悬空 ⚠ | 平面与铺铜 | medium | drc (full) |
 | [GEN-PLN-008](../../skills/ee-general-pcb/references/rules.md#GEN-PLN-008) | 通孔焊盘用热焊盘，SMD 地焊盘和去耦地直接连 ⚠ | 平面与铺铜 | medium | drc (full) |
 | [GEN-PLN-011](../../skills/ee-general-pcb/references/rules.md#GEN-PLN-011) | 芯片底部接地焊盘用多个过孔接地平面 | 平面与铺铜 | high | geometry_script (full) |
-| [GEN-RTE-001](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-001) | 每条信号线下方保持连续的回流参考铜 | 布线 | high | geometry_script (full) |
+| [GEN-RTE-001](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-001) | 每条信号线下方保持连续的回流参考铜 | 布线 | medium | geometry_script (full) |
 | [GEN-RTE-003](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-003) | 信号换层时在过孔旁放地过孔提供回流 | 布线 | medium | geometry_script (partial) |
 | [GEN-RTE-004](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-004) | 电源线与地线并行贴近，环路长宽比不超过 3:1 | 布线 | high | geometry_script (full) |
 | [GEN-RTE-005](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-005) | 电源分配单点或星形，别串成菊花链 ⚠ | 布线 | high | geometry_script (partial) |

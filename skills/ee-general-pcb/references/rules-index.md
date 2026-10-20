@@ -110,7 +110,7 @@
 | ID | 标题 | 级别 | 可信度 | 最强验证 |
 |---|---|---|---|---|
 | GEN-RTE-002 | 信号线不得跨越参考平面的分割槽或缝隙 | must | high | geometry_script(full) |
-| GEN-RTE-001 | 每条信号线下方保持连续的回流参考铜 | should | high | geometry_script(full) |
+| GEN-RTE-001 | 每条信号线下方保持连续的回流参考铜 | should | medium | geometry_script(full) |
 | GEN-RTE-003 | 信号换层时在过孔旁放地过孔提供回流 | should | medium | geometry_script(partial) |
 | GEN-RTE-004 | 电源线与地线并行贴近，环路长宽比不超过 3:1 | should | high | geometry_script(full) |
 | GEN-RTE-005 | 电源分配单点或星形，别串成菊花链 ⚠ | should | high | geometry_script(partial) |
@@ -148,7 +148,7 @@
 | GEN-VER-001 | ERC 零违规，例外逐条带理由，禁止整类静音 | must | high | erc(full) |
 | GEN-VER-008 | 下单前按固定门禁逐项签核 | must | medium | erc(full) |
 | GEN-VER-002 | 按类别理解 ERC 违规，PWR_FLAG 只放在真实电源源头 | should | high | erc(partial) |
-| GEN-VER-003 | 打开默认被忽略的 ERC 检查 | should | high | erc(full) |
+| GEN-VER-003 | 打开默认被忽略的 ERC 检查 ⚠ | should | high | erc(full) |
 | GEN-VER-004 | 布局前由第二人对照数据手册做原理图评审 | should | high | review(manual) |
 | GEN-VER-006 | 把仿真与实测对照并记录模型的适用范围 | should | medium | spice(partial) |
 | GEN-VER-007 | 首次上电按步骤逐轨进行并限流 | should | medium | bench(manual) |

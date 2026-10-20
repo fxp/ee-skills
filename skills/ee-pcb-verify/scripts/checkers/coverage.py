@@ -1,6 +1,6 @@
 """Render <out>/NOT_AUTOMATED.md: which automatable:full rules the checkers do not cover, and why.
 
-    python coverage.py [--out DIR] [--results DIR]
+    python3 coverage.py [--out DIR] [--results DIR]
 """
 from __future__ import annotations
 

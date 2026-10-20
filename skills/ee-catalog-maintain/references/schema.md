@@ -3,9 +3,9 @@
 规则存放在 `catalog/*.yaml`，每个文件是一个 YAML 列表，每条规则一个映射。校验：
 
 ```bash
-python tools/validate.py                      # 全部
-python tools/validate.py catalog/power.yaml   # 单个文件
-python tools/validate.py --check-urls         # 另外探测来源 URL 是否可达
+python3 tools/validate.py                      # 全部
+python3 tools/validate.py catalog/power.yaml   # 单个文件
+python3 tools/validate.py --check-urls         # 另外探测来源 URL 是否可达
 ```
 
 文字用中文，技术术语、器件名、标准号保留英文。枚举值一律用下面的英文 key。

@@ -65,7 +65,7 @@
 | PWR-PLC-004 | 电感靠近 IC 但不必比输入电容更近，SW 铜皮最小 | should | high | geometry_script(partial) |
 | PWR-PLC-006 | 升压变换器先放输出电容，再放电感和输入电容 | should | high | geometry_script(partial) |
 | PWR-PLC-007 | LDO 输入输出电容靠近引脚，负载走线宽 | should | medium | geometry_script(partial) |
-| PWR-PLC-005 | RC 缓冲电路跨接在 SW 与 GND 引脚上并按振铃频率定值 | consider | high | spice(partial) |
+| PWR-PLC-005 | RC 缓冲电路跨接在 SW 与 GND 引脚上并按振铃频率定值 ⚠ | consider | high | spice(partial) |
 
 ## 布线（routing）
 

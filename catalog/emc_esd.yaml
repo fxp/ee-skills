@@ -58,12 +58,12 @@
       op: "=="
       value: 330
       unit: ohm
-      note: "Table 2 注 3：放电电阻典型值 330 Ω"
+      note: "Figure 1（发生器简图）注 3：Rd 典型值 330 Ω；该处为典型值，标准不规定元件值，只规定 Table 2/3 的波形指标"
     - name: esd_gun_storage_capacitance
       op: "=="
       value: 150
       unit: pF
-      note: "Table 2 注 2：Cd + Cs 典型值 150 pF"
+      note: "Figure 1 注 2：Cd + Cs 典型值 150 pF（同上，仅典型值）"
   verify:
     - method: review
       tool: "需求文档 / 测试计划"
@@ -78,7 +78,7 @@
       url: https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf
       publisher: IEC (copy hosted by ITU)
       kind: standard
-      section: "Table 1, Table 2, Table 3"
+      section: "Table 1, Figure 1 (notes 2-3), Table 3"
     - title: "ESD Fundamentals Part 2: IEC 61000-4-2 Rating (SSZT871)"
       url: https://www.ti.com/lit/pdf/sszt871
       publisher: Texas Instruments
@@ -247,7 +247,7 @@
       value: 499
       unit: ohm
       note: "Espressif ESP32-C3 原理图清单：U0TXD 串 499 Ω 抑制谐波"
-  conflicts: "SZZA009 的阻值针对 5 V CMOS MCU 的低速 GPIO。高速接口（数十 MHz 的 SPI、USB）的阻值必须由时序和阻抗决定，Espressif 给 USB D+/D− 的起始值是 22/33 Ω。取舍：低速 GPIO 用 SZZA009 区间作缺省，高速接口按器件手册。"
+  conflicts: "SZZA009 的阻值针对 CMOS 微控制器的低速 GPIO 引脚（原文未限定供电电压）。高速接口（数十 MHz 的 SPI、USB）的阻值必须由时序和阻抗决定，Espressif 给 USB D+/D− 的起始值是 22/33 Ω。取舍：低速 GPIO 用 SZZA009 区间作缺省，高速接口按器件手册。"
   verify:
     - method: geometry_script
       tool: "读 .kicad_sch/.kicad_pcb 网表的脚本"
@@ -298,7 +298,7 @@
   verify:
     - method: erc
       tool: "KiCad ERC + 网络检查脚本"
-      check: "CHIP_EN 网络有上拉电阻和对地电容，且无悬空；strapping 脚（GPIO9）上无 ≥ 100 nF 电容"
+      check: "CHIP_EN 网络有上拉电阻和对地电容，且无悬空；strapping 脚（GPIO9）上无「大电容」（Espressif 只写 high-value capacitors 未给数值，本检查取 ≥ 100 nF 报警，为本库经验阈值）"
       automatable: partial
     - method: geometry_script
       tool: "pcbnew Python"
@@ -541,7 +541,7 @@
   verify:
     - method: bom_check
       tool: "BOM 脚本 + 数据手册参数表"
-      check: "对每个 TVS 比较 VRWM ≥ V_max_op、VBR > V_supply_max、VC@IPP < 被保护引脚 Abs.Max（含 2 倍布局电感项）、IEC 等级 ≥ 目标；任何一条不满足即失败"
+      check: "对每个 TVS 比较 VRWM ≥ V_max_op、VBR > V_supply_max、VC@IPP < 被保护引脚 Abs.Max（再叠加布局电感压降 (L2+L3)·dI/dt，见 EMC-VER-003；余量由设计者定，来源未给统一倍数）、IEC 等级 ≥ 目标；任何一条不满足即失败"
       automatable: partial
     - method: spice
       tool: "ngspice + 厂商 TVS 模型"
@@ -766,7 +766,7 @@
   rule: 对金属壳连接器（如 USB-C），原理图里明确选择一种方式并说明理由：壳体直接低电感接信号地；壳体接机壳地、机壳地经 R‖C 或磁珠接信号地；或悬空。无机壳地可用时优先直接接地，并预留 0 Ω 与 R/C 位置以便调试。
   rationale: TI 指出 TVS 的地与数字/模拟地之间隔以电感的机壳地对 ESD 很有效，但会让高速信号跨越多个地平面而很难布线，所以很多设计用同一个地；若没有机壳接地，紧耦合的多层地平面能让被保护 IC 处的地偏移保持较小。SZZA009 则要求有一个把稳压器、MCU、电池负极和机壳/屏蔽连起来的单点参考。
   applies_to: [usb-c, shielded-connector]
-  conflicts: "SLVA680：分离的机壳地 ESD 效果很好但布线难，很多设计用公共地；SZZA009：屏蔽层接单点参考；论坛（仅见搜索摘要，未打开）转述的 USB 做法有三种：1 MΩ 并 4.7 nF 接信号地（据称来自 Cypress 与 Atmel AVR1017 §3.3.3）、壳体直接接地（据称为 Intel 做法）、经磁珠接地；另有一条 Linux 内核邮件列表报告把壳体经 1 MΩ‖1 nF 接保护地后 USB 不稳定，改为直接接 GND 后消失。取舍：本板塑料外壳、无保护地，采用壳体直接接信号地且 TVS 地紧邻，并保留 R/C 焊盘，因为在没有机壳地时分离地没有 ESD 收益。"
+  conflicts: "SLVA680：分离的机壳地 ESD 效果很好但布线难，很多设计用公共地；SZZA009：屏蔽层接单点参考；论坛（仅见搜索摘要，未打开）转述的 USB 做法有三种：1 MΩ 并 4.7 nF 接信号地（据称来自 Cypress 与 Atmel AVR1017 §3.3.3）、壳体直接接地（据称为 Intel 做法）、经磁珠接地；另有一条 Linux 内核邮件列表（chipidea udc 内核崩溃，2016）报告把壳体经 1 MΩ‖1 nF 接保护地后 USB 不稳定，改接到与 USB 信号相同的 GND（并把 1 MΩ 换成 100 Ω）后问题未再出现。取舍：本板塑料外壳、无保护地，采用壳体直接接信号地且 TVS 地紧邻，并保留 R/C 焊盘，因为在没有机壳地时分离地没有 ESD 收益。"
   verify:
     - method: review
       tool: "原理图评审"
@@ -816,7 +816,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew Python"
-      check: "采样每条周期性信号走线，检查走线下方（对层）或其两侧 1 mm 内是否有地铜；记录无地覆盖的长度占比，目标占比越低越好；检查电源走线与对应地走线是否上下重叠"
+      check: "采样每条周期性信号走线，检查走线下方（对层）或其两侧 1 mm 内（1 mm 为本库经验取值）是否有地铜；记录无地覆盖的长度占比，目标占比越低越好；检查电源走线与对应地走线是否上下重叠"
       automatable: partial
     - method: emc_precompliance
       tool: "近场探头 + 频谱仪"
@@ -836,8 +836,8 @@
   domain: emc_esd
   stage: stackup
   severity: consider
-  rule: 不要把「电源平面缩进地平面 20H」作为必选项；只有在电源平面夹在两个地层之间、边沿 < 1 ns 的高速板上，且不影响过孔和供电连续性时，才考虑缩进，实用缩进量 0.5–1 mm，四周均匀。两层板没有电源平面，本规则不适用。
-  rationale: 20H 的出发点是让边缘的边沿场被包住（H 为电源—地层间距）。Shim 和 Hubing 在两块 7"×9" 板上实测并建模，结论是近场虽更集中，但实现 20H 的板在谐振频率处辐射略高（模型约高 2–3 dB，实测峰值相差不到 1 dB，估算 TM10 模式约 +3.6 dB）。板厂文章称 20H 约保留 70% 边缘场、100H 约 98%，但均无实测依据，并承认只在特定条件下有效。
+  rule: 不要把「电源平面缩进地平面 20H」作为必选项；只有在电源平面夹在两个地层之间、边沿很快的高速多层板（PCBWay 称通常 8 层及以上）上，且不影响过孔和供电连续性时，才考虑缩进，实用缩进量 0.5–1 mm，四周均匀。两层板没有电源平面，本规则不适用。
+  rationale: 20H 的出发点是让边缘的边沿场被包住（H 为电源—地层间距）。Shim 和 Hubing 在两块 7"×9"（30 mil 厚）板上实测并建模，结论是近场虽更集中，但实现 20H 的板在谐振频率处辐射略高：解析估算最大场强 TM10 +3.6 dB、TM01 +4.4 dB，EMAP5 模型辐射功率约高 2–3 dB；实测峰值差随模式而异（TM10 约 7 dB，TM01 不足 1 dB），与简化模型吻合得不好，但方向一致（20H 板更高）。板厂文章称 20H 约保留 70% 边缘场、100H 约 98%，但均无实测依据，并承认只在特定条件下有效。
   applies_to: [multilayer, power-plane]
   parameters:
     - name: power_plane_setback_practical
@@ -909,7 +909,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew Python"
-      check: "求所有连接器焊盘的外接矩形与它们所在板边；要求连接器分布在 ≤ 2 条相邻板边；列出距板边最近的 MCU/ADC 焊盘及其距离；记录所有时钟/PWM 网络走线到 Edge.Cuts 的最小距离"
+      check: "求所有连接器焊盘的外接矩形与它们所在板边；要求连接器分布在 ≤ 2 条相邻板边（来源只写「同一边或同一区域」，2 条为本库放宽的操作化判据）；列出距板边最近的 MCU/ADC 焊盘及其距离；记录所有时钟/PWM 网络走线到 Edge.Cuts 的最小距离"
       automatable: partial
   sources:
     - title: High-Speed Layout Guidelines for Reducing EMI for LVDS SerDes Designs (SNLA302)
@@ -1233,7 +1233,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew Python"
-      check: "沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖"
+      check: "沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充；0.5 mm、1 mm 均为本库经验取值，来源未给）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖"
       automatable: full
     - method: em_sim
       tool: "openEMS / Elmer，或 2.5D 环路电感提取"
@@ -1354,7 +1354,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew Python"
-      check: "对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜）"
+      check: "对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜；2 mm、0.5 mm 均为本库经验值，来源未给）"
       automatable: full
     - method: spice
       tool: "ngspice，L = 0.2·l·(ln(2l/(w+t)) + 0.2235·(w+t)/l + 0.5) nH（ROHM 公式，l、w、t 单位 mm）"
@@ -1586,7 +1586,7 @@
       url: https://www.ti.com/lit/pdf/snva489
       publisher: Texas Instruments
       kind: app_note
-      section: "§6 LISN, §7"
+      section: "§3 (10 kHz-30 MHz span), §6 LISN (incl. CAUTION box)"
   confidence: medium
   tags: [cat-feeder]
 
@@ -1640,12 +1640,12 @@
       op: "=="
       value: 330
       unit: ohm
-      note: "IEC 61000-4-2 Table 2 注 3"
+      note: "IEC 61000-4-2 Figure 1 注 3（典型值）"
     - name: esd_gun_storage_capacitance
       op: "=="
       value: 150
       unit: pF
-      note: "IEC 61000-4-2 Table 2 注 2"
+      note: "IEC 61000-4-2 Figure 1 注 2（典型值）"
     - name: rohm_example_bad_layout_peak
       op: "=="
       value: 3400
@@ -1676,7 +1676,7 @@
       url: https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf
       publisher: IEC (copy hosted by ITU)
       kind: standard
-      section: "Table 2, Table 3"
+      section: "Figure 1 (notes 2-3), Table 3"
   confidence: high
   tags: [cat-feeder]
 

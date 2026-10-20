@@ -19,15 +19,15 @@
 | `esd_contact_test_voltage` | 2 … 8 kV | IEC 61000-4-2 Table 1：等级 1–4 的接触放电 = 2 / 4 / 6 / 8 kV |
 | `esd_air_test_voltage` | 2 … 15 kV | IEC 61000-4-2 Table 1：等级 1–4 的空气放电 = 2 / 4 / 8 / 15 kV |
 | `esd_first_peak_current_level4` | == 30 A | Table 3：8 kV 等级首峰 30 A（±15%），上升时间 0.8 ns（±25%），30 ns 处 16 A，60 ns 处 8 A |
-| `esd_gun_series_resistance` | == 330 ohm | Table 2 注 3：放电电阻典型值 330 Ω |
-| `esd_gun_storage_capacitance` | == 150 pF | Table 2 注 2：Cd + Cs 典型值 150 pF |
+| `esd_gun_series_resistance` | == 330 ohm | Figure 1（发生器简图）注 3：Rd 典型值 330 Ω；该处为典型值，标准不规定元件值，只规定 Table 2/3 的波形指标 |
+| `esd_gun_storage_capacitance` | == 150 pF | Figure 1 注 2：Cd + Cs 典型值 150 pF（同上，仅典型值） |
 
 **验证**
 - `review`（manual）· 需求文档 / 测试计划 — 每个外部端口都列有接触/空气放电目标等级；未列出的端口视为不通过
 - `bom_check`（partial）· BOM 脚本，读 TVS 数据手册参数表 — 每个端口保护器件的 IEC 61000-4-2 接触/空气等级 ≥ 该端口目标等级，且额定值来自数据手册的 IEC 项而非 HBM/CDM 项
 
 **来源**
-- [IEC 61000-4-2 Ed.2.0 (2008) ESD immunity test](https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf) — IEC (copy hosted by ITU), standard, Table 1, Table 2, Table 3
+- [IEC 61000-4-2 Ed.2.0 (2008) ESD immunity test](https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf) — IEC (copy hosted by ITU), standard, Table 1, Figure 1 (notes 2-3), Table 3
 - [ESD Fundamentals Part 2: IEC 61000-4-2 Rating (SSZT871)](https://www.ti.com/lit/pdf/sszt871) — Texas Instruments, app_note
 
 <a id="EMC-ARC-001"></a>
@@ -127,7 +127,7 @@
 | `tvs_vc_vs_protected_abs_max` | qualitative | VC@IPP < 被保护器件绝对最大额定（TI SSZT363）；来源未给统一裕量，由设计者定 |
 
 **验证**
-- `bom_check`（partial）· BOM 脚本 + 数据手册参数表 — 对每个 TVS 比较 VRWM ≥ V_max_op、VBR > V_supply_max、VC@IPP < 被保护引脚 Abs.Max（含 2 倍布局电感项）、IEC 等级 ≥ 目标；任何一条不满足即失败
+- `bom_check`（partial）· BOM 脚本 + 数据手册参数表 — 对每个 TVS 比较 VRWM ≥ V_max_op、VBR > V_supply_max、VC@IPP < 被保护引脚 Abs.Max（再叠加布局电感压降 (L2+L3)·dI/dt，见 EMC-VER-003；余量由设计者定，来源未给统一倍数）、IEC 等级 ≥ 目标；任何一条不满足即失败
 - `spice`（partial）· ngspice + 厂商 TVS 模型 — 加 IEC 61000-4-2 8 kV 电流源（见 EMC-VER-003），读被保护引脚峰值电压
 
 **来源**
@@ -171,7 +171,7 @@
 - `geometry_script`（partial）· 读 .kicad_sch/.kicad_pcb 网表的脚本 — 对离开 PCB 的 MCU 输出网络（接到连接器的网络），沿连通图查找 MCU 引脚到连接器之间的串联电阻，缺失则报错；再量电阻焊盘到 MCU 引脚焊盘的距离并列出最远者供审阅
 - `si_sim`（partial）· ngspice — 加入驱动阻抗 + 串联 R + 走线/负载电容，确认接收端上升时间满足接口时序
 
-**来源分歧** SZZA009 的阻值针对 5 V CMOS MCU 的低速 GPIO。高速接口（数十 MHz 的 SPI、USB）的阻值必须由时序和阻抗决定，Espressif 给 USB D+/D− 的起始值是 22/33 Ω。取舍：低速 GPIO 用 SZZA009 区间作缺省，高速接口按器件手册。
+**来源分歧** SZZA009 的阻值针对 CMOS 微控制器的低速 GPIO 引脚（原文未限定供电电压）。高速接口（数十 MHz 的 SPI、USB）的阻值必须由时序和阻抗决定，Espressif 给 USB D+/D− 的起始值是 22/33 Ω。取舍：低速 GPIO 用 SZZA009 区间作缺省，高速接口按器件手册。
 
 **来源**
 - [PCB Design Guidelines For Reduced EMI (SZZA009)](https://www.ti.com/lit/an/szza009/szza009.pdf) — Texas Instruments, app_note, §2.2.5, §2.4.3
@@ -192,7 +192,7 @@
 | `chip_en_low_level_max` | <= 0.825 V | 手册给 VIL_nRST 范围上限 0.25×VDD，3.3 V 供电时 0.825 V；EN 电压低于该值会被当作低电平（复位），噪声毛刺不得使 EN 跌到此值以下 |
 
 **验证**
-- `erc`（partial）· KiCad ERC + 网络检查脚本 — CHIP_EN 网络有上拉电阻和对地电容，且无悬空；strapping 脚（GPIO9）上无 ≥ 100 nF 电容
+- `erc`（partial）· KiCad ERC + 网络检查脚本 — CHIP_EN 网络有上拉电阻和对地电容，且无悬空；strapping 脚（GPIO9）上无「大电容」（Espressif 只写 high-value capacitors 未给数值，本检查取 ≥ 100 nF 报警，为本库经验阈值）
 - `geometry_script`（partial）· pcbnew Python — 输出 CHIP_EN 走线总长，并检查它与电机/开关节点网络的最小间距，供评审
 - `bench`（manual）· 示波器（≥ 200 MHz） — 在 ESD 枪打 USB 壳体、电机启停/堵转时抓 EN 与 3V3，确认毛刺不跨过 VIL 门限、无复位
 
@@ -403,7 +403,7 @@
 - `review`（manual）· 原理图评审 — 每个金属壳连接器的壳体网络有明确去向（直接地 / RC / 磁珠），并预留可换件的焊盘
 - `bench`（manual）· ESD 枪（接触放电打壳体）+ 示波器 — 4 kV 接触放电打 USB 壳体，观察 EN、3V3 与 USB 链路有无复位/掉线；换不同的壳体接法对比
 
-**来源分歧** SLVA680：分离的机壳地 ESD 效果很好但布线难，很多设计用公共地；SZZA009：屏蔽层接单点参考；论坛（仅见搜索摘要，未打开）转述的 USB 做法有三种：1 MΩ 并 4.7 nF 接信号地（据称来自 Cypress 与 Atmel AVR1017 §3.3.3）、壳体直接接地（据称为 Intel 做法）、经磁珠接地；另有一条 Linux 内核邮件列表报告把壳体经 1 MΩ‖1 nF 接保护地后 USB 不稳定，改为直接接 GND 后消失。取舍：本板塑料外壳、无保护地，采用壳体直接接信号地且 TVS 地紧邻，并保留 R/C 焊盘，因为在没有机壳地时分离地没有 ESD 收益。
+**来源分歧** SLVA680：分离的机壳地 ESD 效果很好但布线难，很多设计用公共地；SZZA009：屏蔽层接单点参考；论坛（仅见搜索摘要，未打开）转述的 USB 做法有三种：1 MΩ 并 4.7 nF 接信号地（据称来自 Cypress 与 Atmel AVR1017 §3.3.3）、壳体直接接地（据称为 Intel 做法）、经磁珠接地；另有一条 Linux 内核邮件列表（chipidea udc 内核崩溃，2016）报告把壳体经 1 MΩ‖1 nF 接保护地后 USB 不稳定，改接到与 USB 信号相同的 GND（并把 1 MΩ 换成 100 Ω）后问题未再出现。取舍：本板塑料外壳、无保护地，采用壳体直接接信号地且 TVS 地紧邻，并保留 R/C 焊盘，因为在没有机壳地时分离地没有 ESD 收益。
 
 **来源**
 - [ESD Protection Layout Guide (SLVA680A)](https://www.ti.com/lit/pdf/slva680) — Texas Instruments, app_note, §1, §2.4
@@ -426,7 +426,7 @@
 | `mcu_ground_island_extension` | >= 6.35 mm | SZZA009 §2.1.3：地岛延伸出器件轮廓约 1/4 英寸（6.35 mm）；该数值为英制换算 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew Python — 采样每条周期性信号走线，检查走线下方（对层）或其两侧 1 mm 内是否有地铜；记录无地覆盖的长度占比，目标占比越低越好；检查电源走线与对应地走线是否上下重叠
+- `geometry_script`（partial）· pcbnew Python — 采样每条周期性信号走线，检查走线下方（对层）或其两侧 1 mm 内（1 mm 为本库经验取值）是否有地铜；记录无地覆盖的长度占比，目标占比越低越好；检查电源走线与对应地走线是否上下重叠
 - `emc_precompliance`（manual）· 近场探头 + 频谱仪 — 对比改版前后近场峰值
 
 **来源**
@@ -436,9 +436,9 @@
 #### EMC-STK-002 · 20H 规则有争议，不当作强制规则
 `consider` · 可信度 `medium` · 适用: multilayer, power-plane · 标签: cat-feeder
 
-**规则** 不要把「电源平面缩进地平面 20H」作为必选项；只有在电源平面夹在两个地层之间、边沿 < 1 ns 的高速板上，且不影响过孔和供电连续性时，才考虑缩进，实用缩进量 0.5–1 mm，四周均匀。两层板没有电源平面，本规则不适用。
+**规则** 不要把「电源平面缩进地平面 20H」作为必选项；只有在电源平面夹在两个地层之间、边沿很快的高速多层板（PCBWay 称通常 8 层及以上）上，且不影响过孔和供电连续性时，才考虑缩进，实用缩进量 0.5–1 mm，四周均匀。两层板没有电源平面，本规则不适用。
 
-**依据** 20H 的出发点是让边缘的边沿场被包住（H 为电源—地层间距）。Shim 和 Hubing 在两块 7"×9" 板上实测并建模，结论是近场虽更集中，但实现 20H 的板在谐振频率处辐射略高（模型约高 2–3 dB，实测峰值相差不到 1 dB，估算 TM10 模式约 +3.6 dB）。板厂文章称 20H 约保留 70% 边缘场、100H 约 98%，但均无实测依据，并承认只在特定条件下有效。
+**依据** 20H 的出发点是让边缘的边沿场被包住（H 为电源—地层间距）。Shim 和 Hubing 在两块 7"×9"（30 mil 厚）板上实测并建模，结论是近场虽更集中，但实现 20H 的板在谐振频率处辐射略高：解析估算最大场强 TM10 +3.6 dB、TM01 +4.4 dB，EMAP5 模型辐射功率约高 2–3 dB；实测峰值差随模式而异（TM10 约 7 dB，TM01 不足 1 dB），与简化模型吻合得不好，但方向一致（20H 板更高）。板厂文章称 20H 约保留 70% 边缘场、100H 约 98%，但均无实测依据，并承认只在特定条件下有效。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -498,7 +498,7 @@
 **依据** 外部线缆是主要的辐射天线和 ESD 入口，集中放置让保护与滤波集中在一处；板边的走线更容易辐射，也离放电点更近。
 
 **验证**
-- `geometry_script`（partial）· pcbnew Python — 求所有连接器焊盘的外接矩形与它们所在板边；要求连接器分布在 ≤ 2 条相邻板边；列出距板边最近的 MCU/ADC 焊盘及其距离；记录所有时钟/PWM 网络走线到 Edge.Cuts 的最小距离
+- `geometry_script`（partial）· pcbnew Python — 求所有连接器焊盘的外接矩形与它们所在板边；要求连接器分布在 ≤ 2 条相邻板边（来源只写「同一边或同一区域」，2 条为本库放宽的操作化判据）；列出距板边最近的 MCU/ADC 焊盘及其距离；记录所有时钟/PWM 网络走线到 Edge.Cuts 的最小距离
 
 **来源**
 - [High-Speed Layout Guidelines for Reducing EMI for LVDS SerDes Designs (SNLA302)](https://www.ti.com/lit/pdf/snla302) — Texas Instruments, app_note, §2, §3
@@ -656,7 +656,7 @@
 | `quarter_wave_at_300mhz` | == 25 cm | SZZA009 §1.4.1：300 MHz 时 1/4 λ ≈ 25 cm（空气）；1 MHz 时 75 m |
 
 **验证**
-- `geometry_script`（full）· pcbnew Python — 沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖
+- `geometry_script`（full）· pcbnew Python — 沿每条目标走线按 0.5 mm 步进取样点，判断对层或同层 1 mm 内是否有地铜（填充区已填充；0.5 mm、1 mm 均为本库经验取值，来源未给）；输出无地覆盖长度占比及位置，快速网络目标 100% 覆盖
 - `em_sim`（partial）· openEMS / Elmer，或 2.5D 环路电感提取 — 提取关键网络的环路电感，作为相对比较量
 
 **来源**
@@ -699,7 +699,7 @@
 | `esd_overshoot_per_nh` | == 40 V/nH | 由 SLVA680 的 dI/dt = 30 A/0.8 ns ≈ 4×10^10 A/s 换算：每 1 nH 约 40 V |
 
 **验证**
-- `geometry_script`（full）· pcbnew Python — 对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜）
+- `geometry_script`（full）· pcbnew Python — 对每个 TVS 的地焊盘，量到最近地过孔的距离（目标 ≤ 焊盘间距的 1 倍，经验值）并统计 2 mm 内地过孔数；检查该焊盘是否直接连入同层地铺铜而非走细线（走线宽度 ≥ 0.5 mm 或直接铺铜；2 mm、0.5 mm 均为本库经验值，来源未给）
 - `spice`（partial）· ngspice，L = 0.2·l·(ln(2l/(w+t)) + 0.2235·(w+t)/l + 0.5) nH（ROHM 公式，l、w、t 单位 mm） — 用该公式把地回路几何换成电感，代入 EMC-VER-003 的仿真，被保护引脚峰值须低于 Abs.Max
 
 **来源**
@@ -867,7 +867,7 @@
 - `emc_precompliance`（manual）· DC LISN + 频谱仪 + 电池电源 + 保险丝 — 分别扫 Line1/Line2，记录准峰值与平均值曲线，与目标限值（见适用产品标准）比较；电机运行（启动、稳态、堵转）各扫一次
 
 **来源**
-- [AN-2162 Simple Success With Conducted EMI From DC-DC Converters (SNVA489C)](https://www.ti.com/lit/pdf/snva489) — Texas Instruments, app_note, §6 LISN, §7
+- [AN-2162 Simple Success With Conducted EMI From DC-DC Converters (SNVA489C)](https://www.ti.com/lit/pdf/snva489) — Texas Instruments, app_note, §3 (10 kHz-30 MHz span), §6 LISN (incl. CAUTION box)
 
 <a id="EMC-VER-003"></a>
 #### EMC-VER-003 · ESD 仿真：IEC 枪模型 + TVS + 寄生电感估算 VESD
@@ -879,8 +879,8 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `esd_gun_series_resistance` | == 330 ohm | IEC 61000-4-2 Table 2 注 3 |
-| `esd_gun_storage_capacitance` | == 150 pF | IEC 61000-4-2 Table 2 注 2 |
+| `esd_gun_series_resistance` | == 330 ohm | IEC 61000-4-2 Figure 1 注 3（典型值） |
+| `esd_gun_storage_capacitance` | == 150 pF | IEC 61000-4-2 Figure 1 注 2（典型值） |
 | `rohm_example_bad_layout_peak` | == 3400 V | ROHM 仿真：连接器—二极管 52 nH、连接器—IC 91 nH，首峰约 3.4 kV，二极管未钳位 |
 | `rohm_example_good_layout_peak` | == 107 V | ROHM 仿真：寄生电感 1 nH，首峰约 107 V；该值取决于所用 TVS 型号 |
 
@@ -890,7 +890,7 @@
 **来源**
 - [PCB Layout for TVS Diodes (No.66AN067E)](https://fscdn.rohm.com/en/products/databook/applinote/discrete/diodes/pcb_layout_for_tvs_diodes_an-e.pdf) — ROHM, app_note, Eq.(1)–(2), Figures 4–10
 - [ESD Protection Layout Guide (SLVA680A)](https://www.ti.com/lit/pdf/slva680) — Texas Instruments, app_note, §2.1
-- [IEC 61000-4-2 Ed.2.0 (2008) ESD immunity test](https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf) — IEC (copy hosted by ITU), standard, Table 2, Table 3
+- [IEC 61000-4-2 Ed.2.0 (2008) ESD immunity test](https://www.itu.int/en/ITU-D/Technology/Documents/Events2016/CI_Training_ARB_Tunis_April16/Session8/IEC_61000-4-2_2008.pdf) — IEC (copy hosted by ITU), standard, Figure 1 (notes 2-3), Table 3
 
 <a id="EMC-VER-004"></a>
 #### EMC-VER-004 · EFT 抗扰测试：双极性、每端口不少于 1 分钟

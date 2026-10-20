@@ -18,7 +18,7 @@
 |---|---|---|
 | `btl_unclipped_power` | qualitative | P = (Vcc·M_max)²/(2·R_T²)·R_load（EDN）；TPA3116D2 数据手册 Eq.2 写作 P = (R_L/(R_L+2·R_S)·V_P)²/(2·R_L)，R_S 含 RDS(on) 与滤波器电阻 |
 | `power_10pct_thd_over_unclipped` | == 1.25 ratio | TPA3116D2 数据手册：POUT(10% THD) = 1.25 × POUT(unclipped)；核算无削波功率时不要拿 10% THD 功率当目标 |
-| `supply_voltage_nominal` | qualitative | Vcc(nom) = Vcc(min)/(1 - 容差)。EDN 示例：50 W / 8 Ω、R_T = 8.3 Ω、M_max = 88%、±5% 容差，得 Vcc(min) = 33.3 V、标称 35.1 V、限流 ≥ 3.72 A（示例数字，不是通用阈值） |
+| `supply_voltage_nominal` | qualitative | Vcc(nom) = Vcc(min)/(1 - 容差)。EDN 示例：50 W / 8 Ω、R_T = 8.3 Ω、M_max = 88%、±5% 容差，得 Vcc(min) = 33.3 V、标称 35.1 V；按 Eq.4 代入同一组数重算限流 ≥ 33.34×0.88/8.3 ≈ 3.53 A（EDN 原文印的是 3.72 A，与其自身输入不自洽，以公式为准；示例数字，不是通用阈值） |
 
 **验证**
 - `bom_check`（partial）· Python 小脚本或表格，读 BOM 与数据手册参数 — 输入目标功率、最小负载阻抗、RDS(on)@Tj_max、电感 DCR、电源最低电压与容差、器件 M_max，按上式算 Vcc(min) 与 I_limit(min)； 通过判据：实际最低 PVCC ≥ Vcc(min)，器件过流阈值 ≥ I_limit(min)。
@@ -144,7 +144,7 @@
 
 **规则** 音频信号通路上承受明显交流电压的耦合/滤波电容用 C0G(NP0) 或薄膜；容量大时用 SMT 薄膜，或用已保证正偏压的钽/电解。必须用 X7R/X5R 时加大容量和/或提高串联阻抗，把高通转折频率压到通带以下约两个十年。
 
-**依据** 高 K 钛酸钡介质的介电常数随电场下降，信号电压使电容随之变化并调制电流，失真在 -3 dB 转折频率附近最大且随电平上升；C0G 在 ±30 ppm 内稳定，没有这个现象。
+**依据** 高 K 钛酸钡介质的介电常数随电场下降，信号电压使电容随之变化并调制电流，失真在 -3 dB 转折频率附近最大且随电平上升；C0G 在整个工作温度范围内容量变化小于 ±30 ppm（EDN），其滤波器实验中失真在测量底噪以下，没有这个现象。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -307,7 +307,7 @@
 |---|---|---|
 | `series_resistor` | == 1 kOhm | TI 示例；需与功放输入阻抗一起算分压 |
 | `shunt_capacitor` | == 4.7 nF | C0G/NP0 为宜（见 AUD-SCH-001） |
-| `lowpass_pole` | == 33 kHz | TI 称对音频应用合适；高采样率/超声应用需上移 |
+| `lowpass_pole` | == 33 kHz | TI 原文写 33 kHz（SLAA749）；按 1/(2π·1 kΩ·4.7 nF) 实算为 ≈33.9 kHz，33 为原文取整。TI 称对音频应用合适；高采样率/超声应用需上移 |
 
 **验证**
 - `spice`（partial）· ngspice：.ac — 含功放输入阻抗的实际 -3 dB 点，确认 20 kHz 处衰减在可接受范围，带外噪声被抑制
@@ -376,20 +376,20 @@
 - `bench`（manual）· 音频分析仪 / 网络分析 — 实际扬声器负载下扫频响，看高频有无峰化，并确认过流保护不被误触发
 
 **来源**
-- [Class-D LC Filter Design (SLAA701B, formerly SLOA119)](https://www.ti.com/lit/pdf/sloa119) — Texas Instruments, app_note, §1.3
+- [Class-D LC Filter Design (SLAA701B, formerly SLOA119)](https://www.ti.com/lit/pdf/sloa119) — Texas Instruments, app_note, §1.3, §1.5（73 kHz 示例在 §1.5）
 - [Power supply decoupling and audio signal filtering for the Class-D audio power amplifier (SLYT199)](https://www.ti.com/lit/pdf/slyt199) — Texas Instruments, app_note, Output filter, Table 1
 
 <a id="AUD-SCH-012"></a>
 #### AUD-SCH-012 · LC 滤波器电感和电容选型：线性度与降额
 `should` · 可信度 `high` · 适用: class-d, lc-filter, inductor, film-capacitor
 
-**规则** 电感的饱和电流必须高于直流 + 交流峰值电流并留裕度（不同厂家的 Isat 常定义在电感下降 30% 甚至更多，用到 Isat 会严重劣化 THD），选屏蔽、低 DCR 型；电容用金属化薄膜，用陶瓷时按电压降额，高功率输出时选 ≥150 V（推荐 250 V）额定、低 ESR。
+**规则** 电感的饱和电流必须高于直流 + 交流峰值电流并留裕度（不同厂家的 Isat 常定义在电感下降 30% 甚至更多，用到 Isat 会严重劣化 THD），选屏蔽、低 DCR 型；电容用金属化薄膜，用陶瓷时按电压降额，高功率输出时选额定电压 >150 V（推荐 250 V）、低 ESR。
 
 **依据** 电感随电流饱和使电感量下降，阻抗越低的负载电流越大，失真越高；陶瓷电容 C ≈ C_rated·(1 - V/V_rated)，会让滤波器截止频率漂移，并带来电压系数失真。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `ceramic_rated_voltage_min` | >= 150 V | SLAA701B：高功率 Class-D（输出约 50 Vpp 的例子）下强制 >150 V，推荐 250 V；5 V 级低功率器件不套用该数值 |
+| `ceramic_rated_voltage_min` | > 150 V | SLAA701B §1.5：用陶瓷电容时额定电压 > 150 V 为强制，推荐 250 V（针对 TPA32xx 一类高功率 Class-D；5 V 级低功率器件不套用该数值，属本库的补充说明） |
 | `capacitor_low_frequency_esr_peak` | <= 1 Ohm | SLAA701B：低频峰值 ESR 建议不超过 1 Ω，频率越高越低 |
 | `film_capacitor_dvdt_min` | >= 100 V/us | SLAA701B：50 Vpp、73 kHz 角频率约 23 V/µs，建议额定 dv/dt 取 100 V/µs 以留余量 |
 | `inductance_change_1a_to_20a_good_examples` | <= 1.55 percent | SLAA701B 表 1-6：Würth 7443630700 为 0.94%，74436301000 为 1.38%，Coilcraft MA5173-AE 为 1.16%，MA5172-AE 为 1.55%（600 kHz 测试信号下的电感量平均变化，非通用门限） |
@@ -421,7 +421,7 @@
 - `emc_precompliance`（manual）· 近场探头 + 频谱仪 / 预合规辐射扫描 — 30 MHz-1 GHz，最长实际扬声器线缆下，对比有无磁珠及不同磁珠型号
 - `bench`（manual）· 音频分析仪 — 更换磁珠前后测 THD+N，磁珠在环外时高频失真会明显上升
 
-**来源分歧** 低功率老器件（SLOA145、SLOA216）用磁珠加约 1 nF 电容即可；较新的智能功放（SLAA901、SLAA920）强调电感性元件在前且截止频率不低于 1.5 MHz。 两者并不矛盾，参数取并集区间，具体仍以所用器件手册和实测为准。
+**来源分歧** 低功率老器件用磁珠即可：SLOA145 图 5 为磁珠 + 1 nF，SLOA216 只给磁珠滤波、未给电容值；较新的智能功放（SLAA901、SLAA920）强调电感性元件在前且截止频率不低于 1.5 MHz。 两者并不矛盾，参数取并集区间，具体仍以所用器件手册和实测为准。
 
 **来源**
 - [Filter-Free Class-D Audio Amplifiers (SLOA145)](https://www.ti.com/lit/pdf/sloa145) — Texas Instruments, app_note, §3 Ferrite Bead Filters, Table 2
@@ -606,7 +606,7 @@
 |---|---|---|
 | `smallest_decap_to_pin_distance` | <= 1 mm | SLAA902/SLAA896 §2.3；EDN 给出 100 nF 在 2 mm 以内 |
 | `bulk_cap_distance` | <= 30 mm | EDN：大电容离功放不超过 30 mm，并以星形连接 |
-| `pvdd_pgnd_loop_inductance_total` | <= 900 pH | TAS2770 (SLAA902 表 2) 的包含电容 ESL 的总回路预算；BST-OUT 1400 pH，VBAT-GND 1000 pH，VDD-GND 900 pH。TAS2562 (SLAA896)：VBST-BGND 750 pH，GREG-PVDD 800 pH。只对所列型号有效 |
+| `pvdd_pgnd_loop_inductance_total` | <= 900 pH | TAS2770 (SLAA902 表 2) 的包含电容 ESL 的总回路预算；PVDD-PGND 900 pH（即本参数）、VDD-GND 900 pH，另有 BST-OUT 1400 pH、VBAT-GND 1000 pH、DREG-GND 1050 pH。TAS2562 (SLAA896)：VBST-BGND 750 pH，GREG-PVDD 800 pH。只对所列型号有效 |
 | `vbat_pin_to_decap_inductance` | < 500 pH | TAS2563 (SLAA920)：VBAT 引脚到去耦电容的寄生电感 |
 
 **验证**

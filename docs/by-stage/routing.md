@@ -7,7 +7,7 @@
 | ID | 规则 | 级别 | 可信度 | 最强验证 |
 |---|---|---|---|---|
 | [GEN-RTE-002](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-002) | 信号线不得跨越参考平面的分割槽或缝隙 | must | high | geometry_script (full) |
-| [GEN-RTE-001](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-001) | 每条信号线下方保持连续的回流参考铜 | should | high | geometry_script (full) |
+| [GEN-RTE-001](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-001) | 每条信号线下方保持连续的回流参考铜 | should | medium | geometry_script (full) |
 | [GEN-RTE-003](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-003) | 信号换层时在过孔旁放地过孔提供回流 | should | medium | geometry_script (partial) |
 | [GEN-RTE-004](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-004) | 电源线与地线并行贴近，环路长宽比不超过 3:1 | should | high | geometry_script (full) |
 | [GEN-RTE-005](../../skills/ee-general-pcb/references/rules.md#GEN-RTE-005) | 电源分配单点或星形，别串成菊花链 | should | high | geometry_script (partial) |

@@ -210,7 +210,7 @@
 | `esp32c3_light_sleep_current_typ` | == 130 uA | 同表，VDD_SPI 与 Wi-Fi 掉电，所有 GPIO 高阻 |
 | `esp32c3_modem_sleep_current` | 13 … 28 mA | 表 5-8，80/160 MHz、CPU 空闲/运行、外设时钟关/开 |
 | `deep_sleep_wake_gpio_set` | qualitative | GPIO0–GPIO5；其余 GPIO 只能在 Light-sleep 唤醒 |
-| `gpio_wake_min_pulse` | >= 3 RTC slow-clock cycles | 约 7.4 µs（RC_SLOW ~136 kHz）或约 30.5 µs（XTAL32K） |
+| `gpio_wake_min_pulse` | >= 3 RTC slow-clock cycles | ESP-IDF 睡眠文档：一个慢时钟周期约 7.4 µs（RC_SLOW ~136 kHz）或约 30.5 µs（XTAL32K），故 3 个周期约 22 µs（RC_SLOW）或约 92 µs（XTAL32K） |
 
 **验证**
 - `netlist_diff`（full）· Python 读 KiCad 网表 XML 与睡眠状态表（YAML） — 每个标记为 deep_sleep_wake 的网络必须连到 ESP32-C3 的 GPIO0–GPIO5 引脚；否则判失败。再检查唤醒网络在睡眠期的静态电平与有效边沿方向一致
@@ -335,7 +335,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `backpower_pin_voltage_threshold` | > 0.3 V | SLAA689：电源为 0 V 时引脚电压高于 0.3 V 即可能经 ESD 二极管反向供电（MSP430 文档，原理对所有 CMOS 器件通用） |
+| `backpower_pin_voltage_threshold` | <= 0.3 V | 设计要求：掉电（电源 0 V）域的引脚电压不得超过 0.3 V。SLAA689：电源为 0 V 时引脚电压高于 0.3 V 即可能经 ESD 二极管反向供电（MSP430 文档，原理对所有 CMOS 器件通用） |
 | `esd_diode_continuous_current_max` | <= 2 mA | SLAA689 以 MSP430FR5969 为例，每引脚连续电流 ±2 mA；其他器件查各自绝对最大额定值 |
 
 **验证**
@@ -351,7 +351,7 @@
 #### LPW-SCH-006 · 使能与栅极控制线在复位和深睡期间要有确定电平
 `must` · 可信度 `high` · 适用: esp32-c3, mosfet-gate, load-switch, enable-pin, motor-driver · 标签: cat-feeder
 
-**规则** MCU GPIO 控制的负载开关 EN、LDO EN、MOSFET 栅极（包括电机驱动管）、外设供电开关，都要有外部上拉/下拉到关断电平。ESP32-C3 复位和 Deep-sleep 期间数字 GPIO（6–21）为高阻，RTC GPIO（0–5）除非启用 hold 也是高阻；上电时部分引脚还有毛刺。需要在深睡中保持电平时，用 gpio_hold_en() + gpio_deep_sleep_hold_en()，并注意被保持为高电平的 LED 或负载会持续耗电。
+**规则** MCU GPIO 控制的负载开关 EN、LDO EN、MOSFET 栅极（包括电机驱动管）、外设供电开关，都要有外部上拉/下拉到关断电平。ESP32-C3 复位后各引脚默认状态不同（GPIO9、GPIO12–17、GPIO20 带内部上拉，GPIO21 输出使能并带上拉，其余多为高阻，见原理图检查表 Reset 列）；Deep-sleep 期间数字 GPIO（6–21）为高阻，RTC GPIO（0–5）除非启用 hold 也是高阻；上电时部分引脚还有毛刺。需要在深睡中保持电平时，用 gpio_hold_en() + gpio_deep_sleep_hold_en()，并注意被保持为高电平的 LED 或负载会持续耗电。
 
 **依据** 高阻的栅极或使能端会随漏电和干扰浮动，可能让电机管半导通或让外设意外上电，既耗电又有安全风险。乐鑫列出的上电毛刺：GPIO18 约 50 µs 高电平，MTCK、MTDO、GPIO10、U0RXD 约 5 ns 低电平。
 
@@ -421,7 +421,7 @@
 
 **规则** 为每个 GPIO 建立睡眠状态表（输出高/低/高阻、内部上下拉、外部网络），保证 MCU 和外部电路在睡眠中不互相对抗：不要把引脚拉低去顶上拉，或拉高去顶下拉。ESP32-C3 默认启用睡眠内部电阻（ESP_SLEEP_GPIO_ENABLE_INTERNAL_RESISTORS），使用外部电阻时要关闭，低电平唤醒时要加外部上拉。
 
-**依据** ESP-IDF 文档指出部分 IO 默认带内部上下拉，Deep-sleep 中若外部电路驱动它们，电流会增加。ST 的 AN4899 也提醒复用带上下拉的调试脚时不要对着拉。Deep-sleep 中数字 GPIO 是高阻，RTC GPIO 除非 hold 也是高阻，所以对外部电路的默认电平要靠硬件决定。
+**依据** ESP-IDF 文档指出部分 IO 默认带内部上下拉，Deep-sleep 中若外部电路驱动它们，电流会增加。ST 的 AN4899 流程图同样要求把引脚输出方向与其内部上下拉保持一致、不要对着拉（据搜索摘要，未读到 PDF 原文）。Deep-sleep 中数字 GPIO 是高阻，RTC GPIO 除非 hold 也是高阻，所以对外部电路的默认电平要靠硬件决定。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -440,7 +440,7 @@
 #### LPW-SCH-003 · 未用引脚不得悬空，按芯片规定处理
 `should` · 可信度 `high` · 适用: mcu, esp32-c3, stm32, efm32, nrf52 · 标签: cat-feeder
 
-**规则** 未用的 MCU 引脚不能让使能的输入缓冲悬空：ESP32-C3 复位后 GPIO2、GPIO8 是使能输入但无内部上下拉的高阻，未接电路时要外加上下拉或在软件里使能内部上下拉；STM32 设为模拟输入（或接地/电源，或输出低）；EFM32 设为 Disabled；nRF52 保持复位默认的断开输入缓冲。上电默认状态不同的引脚（调试脚）要按数据手册单独处理。
+**规则** 未用的 MCU 引脚不能让使能的输入缓冲悬空：ESP32-C3 复位后 GPIO2–GPIO5、GPIO7、GPIO8、GPIO10（GPIO6 视 eFuse 而定）是使能输入但无内部上下拉的高阻，未接电路时要外加上下拉或在软件里使能内部上下拉（原理图检查表的 Reset 列）；STM32 设为模拟输入（或接地/电源，或输出低）；EFM32 设为 Disabled；nRF52 保持复位默认的断开输入缓冲。上电默认状态不同的引脚（调试脚）要按数据手册单独处理。
 
 **依据** 悬空的输入缓冲会因噪声反复翻转，额外耗电；模拟/禁用模式关掉施密特触发器和输出驱动，消耗为零。ESP32-C3 每脚输入漏电最大 50 nA，22 个引脚全部悬空/漏电最坏也有 µA 量级。
 
@@ -450,7 +450,7 @@
 
 **验证**
 - `erc`（partial）· KiCad ERC（引脚未连接、输入未被驱动） — 对 MCU 引脚启用「未连接引脚」检查，未用脚必须放置 no-connect 标记并在固件配置表里有对应的处理方式
-- `netlist_diff`（partial）· Python：对照固件 GPIO 初始化表与网表 — 网表中没有任何连接的 GPIO，在固件初始化表里必须是 analog/disabled/pull 之一；ESP32-C3 的 GPIO2、GPIO8 必须有外部或软件上下拉
+- `netlist_diff`（partial）· Python：对照固件 GPIO 初始化表与网表 — 网表中没有任何连接的 GPIO，在固件初始化表里必须是 analog/disabled/pull 之一；ESP32-C3 上复位后为输入使能高阻的引脚（GPIO2–GPIO5、GPIO7、GPIO8、GPIO10）必须有外部或软件上下拉
 
 **来源分歧** TI SCBA004 提到交流供电系统可用上拉解决悬空，但不推荐用于电池设备（电阻消耗电流），建议用 bus-hold；乐鑫检查表和 ST/Silicon Labs 的做法则是加上下拉或软件关输入。取舍：只要引脚不需要读，首选让输入缓冲关闭（模拟/Disabled/断开）；必须读且外部可能高阻时，用最大可行阻值的上下拉或 bus-hold，并确认对端不会长期对抗它。
 
@@ -806,6 +806,7 @@
 - [Schematic Checklist - ESP32-C3 - ESP Hardware Design Guidelines](https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32c3/schematic-checklist.html) — Espressif, vendor_guide, Power Supply
 - [ESP32-C3 Series Datasheet v2.4](https://documentation.espressif.com/esp32-c3_datasheet_en.pdf) — Espressif, datasheet, Tables 5-2, 5-7
 - [High pulse drain impact on CR2032 coin cell battery capacity](https://devzone.nordicsemi.com/cfs-file/__key/communityserver-discussions-components-files/4/0842.High-pulse-drain-impact-on-CR2032-coin-cell-battery-capacity.pdf) — Nordic Semiconductor / Energizer, app_note, Battery capacity vs. peak currents
+- [ESP32-C3 Wireless Adventure: Guidelines for Power Supply Design](https://espressif.github.io/esp32-c3-book-en/chapter_5/5.3/5.3.5.html) — Espressif, vendor_guide, 80 mV (MCS7) / 120 mV (11 Mbit/s) TX ripple limits
 
 <a id="LPW-VER-001"></a>
 #### LPW-VER-001 · 选对测睡眠电流的仪表：burden 电压、量程与分辨率

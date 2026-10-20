@@ -19,9 +19,9 @@ Read `references/schema.md` for the fields and enums, `references/research-brief
 6. Validate and rebuild:
 
 ```bash
-python tools/validate.py                 # schema, ID/domain/stage consistency, duplicate IDs
-python tools/build_docs.py && python tools/build_skills.py
-python -m pytest -q                      # includes "generated files are current"
+python3 tools/validate.py                 # schema, ID/domain/stage consistency, duplicate IDs
+python3 tools/build_docs.py && python3 tools/build_skills.py
+python3 -m pytest -q                      # includes "generated files are current"
 ```
 
 ## Source rules
@@ -33,13 +33,13 @@ python -m pytest -q                      # includes "generated files are current
 
 ## Audit numbers (do this before trusting or gating on a figure)
 
-Sample rules with `confidence: high` and a numeric `parameters` entry; for each, open the cited source and confirm: the number, unit and condition; the section; that the source supports the rule sentence. Verdicts: CONFIRMED / PARTIAL / NOT_FOUND / CONTRADICTED / UNVERIFIED. Fix clear errors in place (correct the value only if the source gives it; otherwise drop the parameter and lower `confidence`). The 2026-10 audit found ~5–10% of such rules had some defect (usually a neighbouring number in the same source, or a paraphrase that drifted), none fabricated.
+Sample rules with `confidence: high` and a numeric `parameters` entry; for each, open the cited source and confirm: the number, unit and condition; the section; that the source supports the rule sentence. Verdicts: CONFIRMED / PARTIAL / NOT_FOUND / CONTRADICTED / UNVERIFIED. Fix clear errors in place (correct the value only if the source gives it; otherwise drop the parameter and lower `confidence`). The 2026-10 audit of all 531 rules found about 83% right as written and the rest defective in some way (usually a mis-cited section or table, a missing condition, a neighbouring number from the same source, or a paraphrase that drifted; a few wrong values); none fabricated. Results and open items are in `docs/AUDIT.md`: add yours there.
 
 ## URLs
 
 ```bash
-python tools/validate.py --check-urls          # probes every source URL
-python tools/retry_urls.py <saved-output>      # re-probe failures with curl and a browser UA
+python3 tools/validate.py --check-urls          # probes every source URL
+python3 tools/retry_urls.py <saved-output>      # re-probe failures with curl and a browser UA
 ```
 
 403/429/timeouts are often bot blocking, not dead links. A 404 is real: find the current URL or a mirror, confirm it is the same document, replace it everywhere, and regenerate `docs/URL_CHECK.md` by hand-editing the summary.

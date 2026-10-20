@@ -28,8 +28,8 @@
 * 只创建 / 修改你被指派的输出文件。临时文件放 `work/<你的名字>/`（已在 .gitignore 里；不要用 /tmp，会消失），结束前删干净。
 * 不要改仓库里其他文件，不要 git commit，不要安装系统软件，不要碰别人 KiCad 可能正开着的板文件。
 * 写完后：
-  1. `python tools/validate.py <你的文件>` 直到 0 errors（警告尽量清掉）。
-  2. `python tools/validate.py <你的文件> --check-urls`，处理不可达的 URL：确认你确实打开过的（403 / 429 多半是机器人拦截）可以保留，其余修正或删掉。
+  1. `python3 tools/validate.py <你的文件>` 直到 0 errors（警告尽量清掉）。
+  2. `python3 tools/validate.py <你的文件> --check-urls`，处理不可达的 URL：确认你确实打开过的（403 / 429 多半是机器人拦截）可以保留，其余修正或删掉。
 
 ## 最终报告（≤ 200 字，不要贴 YAML）
 

@@ -1,8 +1,8 @@
 """One-command rule checking: catalog rules -> drc_rule + geometry checkers -> results.json / results.md.
 
-    python run.py --board X.kicad_pcb --design design/my_board.yaml                     # both checkers, results in ./ee-results/<today>/
-    python run.py --board X.kicad_pcb --design D.yaml --pro X.kicad_pro --out some/dir
-    python run.py --board X.kicad_pcb --design D.yaml --rules DFM-PLC-003,DFM-STK-001 --checkers geometry
+    python3 run.py --board X.kicad_pcb --design design/my_board.yaml                     # both checkers, results in ./ee-results/<today>/
+    python3 run.py --board X.kicad_pcb --design D.yaml --pro X.kicad_pro --out some/dir
+    python3 run.py --board X.kicad_pcb --design D.yaml --rules DFM-PLC-003,DFM-STK-001 --checkers geometry
 
 The input board is COPIED into a private work directory under checkers/_work/ (never opened for writing, never
 via /tmp); KiCad runs against the copy with private config/documents dirs.

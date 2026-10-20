@@ -46,7 +46,7 @@ Example prompts: "review this schematic against the best practices", "what are t
 ## How far to trust it
 
 * Every rule carries `confidence`: `high` = the researcher read the standard / vendor note itself; `medium` = secondary source or search summary only; `low` = single community source or rule of thumb. 141 rules record **disagreements between sources** (2- vs 4-layer, split vs solid ground, fuse vs TVS order, 20H rule, …) instead of picking a side.
-* **Audited, not guaranteed.** A random sample of 36 high-confidence numeric rules: 33 confirmed, 3 with defects (a neighbouring number taken from the same source, a mis-scaled example, a rule sentence that drifted); no number was fabricated. `analog` and `dfm` were then re-audited rule by rule. The other domains were only sampled, so expect **~5–10%** of numeric high-confidence rules to have a similar flaw: **open the source before turning a number into a gate.** See [`ee-catalog-maintain`](skills/ee-catalog-maintain/SKILL.md) for the audit method.
+* **Audited once, not guaranteed.** All 531 rules were re-checked against their sources by independent reviewers: about 83% were right as written, about 15% had a defect that was corrected (usually a mis-cited section or table, a missing condition, or a neighbouring number from the same source; only a few wrong values, e.g. a snubber-resistor formula off by 2x), and 8 were contradicted by their source, absent from it, or could not be checked (parameters dropped or confidence downgraded). Nothing was fabricated, but reviewers can misread too, and paywalled standards (IPC, IEC, JEDEC) and a few sites could not be read: **open the source before turning a number into a gate.** Details, method and open items: [docs/AUDIT.md](docs/AUDIT.md).
 * 39 source links could not be opened from the author's machine (bot blocking, network); see [docs/URL_CHECK.md](docs/URL_CHECK.md). That does not mean they are dead.
 * Known gaps (no readable source found, so not included): connector current ratings, MLCC piezo/voltage-coefficient effects, DDR4/LPDDR, the IEC 60664-1 clearance table, CISPR/FCC limits, Li-ion capacity vs temperature.
 * JLCPCB numbers come from jlcpcb.com pages; domestic jlc.com pricing and some limits differ, and JLC's own pages contradict each other in places (recorded in `conflicts`).
@@ -66,11 +66,11 @@ docs/               SCHEMA, research brief, toolchain notes, generated INDEX / b
 tests/              static tests (CI) + seeded-defect tests (need KiCad + a reference board)
 ```
 
-Edit `catalog/*.yaml` only, then `python tools/validate.py && python tools/build_docs.py && python tools/build_skills.py`. CI fails if generated files are stale.
+Edit `catalog/*.yaml` only, then `python3 tools/validate.py && python3 tools/build_docs.py && python3 tools/build_skills.py`. CI fails if generated files are stale.
 
 ## 中文简介
 
-按设计环节（架构选型、库、原理图、网表、叠层、分区、布局、布线、铺铜、制造、签核）和垂直领域（射频、电源、低功耗、音频、精密模拟、高速数字、EMC/ESD、安规、热、可制造性）整理的最佳实践，共 531 条，每条带量化参数、来源、可信度和**可执行的验证方式**，为后续的仿真和 EDA 校验准备。`ee-design-review` 做评审，`ee-pcb-verify` 在 KiCad 上无头跑 ERC / DRC / 几何检查 / ngspice，11 个领域 skill 各带本领域规则的索引和全文。规则数值来自调研时读到的来源，抽样审计仍发现约 5–10% 的瑕疵，把数值写成硬性门禁前请回原文核对。示例板是开源的 [fxp/cat-feeder](https://github.com/fxp/cat-feeder)（ESP32-C3 自动猫粮机）。
+按设计环节（架构选型、库、原理图、网表、叠层、分区、布局、布线、铺铜、制造、签核）和垂直领域（射频、电源、低功耗、音频、精密模拟、高速数字、EMC/ESD、安规、热、可制造性）整理的最佳实践，共 531 条，每条带量化参数、来源、可信度和**可执行的验证方式**，为后续的仿真和 EDA 校验准备。`ee-design-review` 做评审，`ee-pcb-verify` 在 KiCad 上无头跑 ERC / DRC / 几何检查 / ngspice，11 个领域 skill 各带本领域规则的索引和全文。531 条规则都由独立审计者回原文核对过一遍（约 83% 原样成立，其余已修，见 [docs/AUDIT.md](docs/AUDIT.md)），但付费标准和部分站点没读到原文，把数值写成硬性门禁前请回原文再核对一次。示例板是开源的 [fxp/cat-feeder](https://github.com/fxp/cat-feeder)（ESP32-C3 自动猫粮机）。
 
 ## License
 

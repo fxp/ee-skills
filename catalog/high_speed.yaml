@@ -110,12 +110,12 @@
       op: range
       value: [76.5, 103.5]
       unit: ohm
-      note: "90 Ω ±15%（SLLA414A §2.2）；TI SoC 表 A-1 收紧到 83.7–96.3 Ω，AM65xx 为 90.25–99.75 Ω"
+      note: "90 Ω ±15%（SLLA414A §2.2）；TI SoC 表 A-2/A-3（AM57xx、KeyStone II）收紧到 83.7–96.3 Ω，表 A-5/A-6（AM65xx、AM64x）为 90.25–99.75 Ω（典型 95 Ω）"
     - name: pcie_diff_impedance
       op: range
       value: [90, 110]
       unit: ohm
-      note: "100 Ω ±10%（SPRAAR7J 表 A-1）；AN10373：4/6 层板 100 Ω（单端 60 Ω），8/10 层板 85 Ω（单端 55 Ω）"
+      note: "100 Ω ±10%（SPRAAR7J 表 A-2/A-3/A-4：90/100/110 Ω，单端 60 Ω；AM65xx、AM64x 表 A-5/A-6 为 90.25–99.75 Ω）；AN10373：4/6 层板 100 Ω（单端 60 Ω），8/10 层板 85 Ω（单端 55 Ω）"
     - name: ethernet_mdi_diff_impedance
       op: range
       value: [90, 110]
@@ -153,12 +153,12 @@
   domain: high_speed
   stage: architecture
   severity: should
-  rule: 含 USB HS、以太网 PHY、LVDS、PCIe 或 DDR 的板子至少 4 层（外层走线、紧邻完整 GND 参考）；带 DDR/PCIe/USB3 的 SoC 级设计 TI 建议至少 6 层。2 层板只用于 FS USB（12 Mb/s）及低速接口，且信号下方必须是连续的地铜。
+  rule: 含 USB HS、以太网 PHY、LVDS、PCIe 或 DDR 的板子至少 4 层（外层走线、紧邻完整 GND 参考）；带 PCIe/USB3/SATA/HDMI 等多 Gb/s 接口的 SoC 级设计 TI（SPRAAR7J）建议至少 6 层；带 DDR3 的 KeyStone 设计 TI（SPRABI1D）要求至少 4 个布线层（整板通常 8 层或更多）。2 层板只用于 FS USB（12 Mb/s）及低速接口，且信号下方必须是连续的地铜。
   rationale: 阻抗控制和低回路电感都依赖信号层紧邻的完整参考面；2 层板没有可控的介质厚度，超出低速范围后无法同时满足阻抗与 EMI。
   verify:
     - method: review
       tool: "设计评审清单"
-      check: "列出板上所有接口及其速率；任何 ≥ 480 Mb/s 的差分接口或 ≥ 100 MHz 的单端总线，对应层数必须 ≥ 4（SoC 级 DDR/PCIe/USB3 ≥ 6），否则必须记录例外与风险"
+      check: "列出板上所有接口及其速率；任何 ≥ 480 Mb/s 的差分接口或 ≥ 100 MHz 的单端总线（这两个判定阈值是作者设的，来源未给数值），对应层数必须 ≥ 4（SoC 级 PCIe/USB3 ≥ 6；DDR3 按 SoC 厂商指南，TI KeyStone 要求 ≥ 4 个布线层），否则必须记录例外与风险"
       automatable: manual
   sources:
     - title: "SNLA302 High-Speed Layout Guidelines for Reducing EMI for LVDS SerDes Designs"
@@ -175,6 +175,11 @@
       publisher: "Texas Instruments"
       kind: app_note
       section: "§3.12"
+    - title: "SPRABI1D DDR3 Design Requirements for KeyStone Devices（§6.3.1.2：至少 4 个布线层，整板通常 8 层）"
+      url: "https://www.ti.com/lit/pdf/sprabi1"
+      publisher: "Texas Instruments"
+      kind: app_note
+      section: "§6.3.1.2"
     - title: "AN18.6 SMSC Ethernet Physical Layer Layout Guidelines（§2.2.2 2 Layer Stackup）"
       url: "https://ww1.microchip.com/downloads/en/AppNotes/en562748.pdf"
       publisher: "Microchip (SMSC)"
@@ -196,7 +201,7 @@
       op: ">="
       value: 6
       unit: layers
-      note: "SPRAAR7J §3.12 'TI recommends a PCB of at least six layers'"
+      note: "SPRAAR7J §3.12 'TI recommends a PCB of at least six layers'（该文档覆盖 USB/PCIe/SATA/HDMI/SGMII/CSI，不含 DDR；DDR3 见 SPRABI1D §6.3.1.2：至少 4 个布线层、整板通常 8 层）"
   conflicts: "Microchip AN2054 要求以太网至少 4 层，而 SMSC AN18.6 §2.2.2 同时给出了 10/100 PHY 的 2 层叠层（底层整面地 + 电源岛、信号下方连续参考）。取舍：以太网产品板用 4 层；2 层只适合原型或极短走线、底层整面地的低成本方案，需在评审中明确接受风险。"
   tags: [cat-feeder]
 
@@ -205,7 +210,7 @@
   domain: high_speed
   stage: architecture
   severity: should
-  rule: DDR3 点对点的数据总线按「驱动器阻抗 ≈ 走线阻抗」设计：40 Ω 走线配 34 Ω（或 40 Ω）驱动和 60 Ω ODT 是最优或近最优组合；余量足时走线可取 45/50/60 Ω，此时驱动取 40 Ω、ODT 取 60 Ω。选用 SoC 厂商规定的阻抗时（如 TI KeyStone 的 50 Ω）以厂商值为准，并周期性执行 ZQ 校准。
+  rule: DDR3 点对点的数据总线按「驱动器阻抗 ≈ 走线阻抗」设计：Micron 称 40 Ω 左右的 DQ 总线配 34 Ω 或 40 Ω 驱动余量最大，其中 34 Ω 驱动 + 40 Ω 走线 + 60 Ω ODT 是最优或近最优组合；余量足时走线可取 45/50/60 Ω，此时驱动取 40 Ω、ODT 取 60 Ω。选用 SoC 厂商规定的阻抗时（如 TI KeyStone 的 50 Ω）以厂商值为准，并周期性执行 ZQ 校准。
   rationale: 驱动与线阻抗相同，反射不会回到驱动端，边沿更干净、眼图更开；ODT 和驱动阻抗靠 ZQ 校准才能保持在数据手册容差内。
   verify:
     - method: si_sim
@@ -393,7 +398,7 @@
   verify:
     - method: erc
       tool: "KiCad ERC + 自定义脚本读网表"
-      check: "列出所有标记为高速单端输出且估算长度 > L_crit 的网络，要求驱动器引脚与第一个负载之间串有一个 22–100 Ω 范围内的电阻；缺失则报告"
+      check: "列出所有标记为高速单端输出且估算长度 > L_crit 的网络，要求驱动器引脚与第一个负载之间串有一个阻值 ≈ Z0 − Ro 的电阻（单线示例 23–45 Ω，一般在 22–100 Ω 范围；单驱动带多条线时按 SiTime 示例可更小，如 15 Ω）；缺失则报告"
       automatable: partial
     - method: spice
       tool: "ngspice（T 元件 + 驱动器输出内阻 + 负载电容）"
@@ -425,7 +430,7 @@
       op: "=="
       value: 15
       unit: ohm
-      note: "SiTime：一个驱动带两条 60 Ω 线时 Rs = 15 Ω；两条 50 Ω 线时 Rs = 0 Ω 并加大驱动强度；不建议一个驱动带 3 条以上"
+      note: "SiTime 仿真示例（SiT8208，3.3 V，默认驱动 Ro ≈ 15.3 Ω，非通用值，其它驱动器按自身 Ro 重算）：一个驱动带两条 60 Ω 线时 Rs = 15 Ω；两条 50 Ω 线时 Rs = 0 Ω 并加大驱动强度；不建议一个驱动带 3 条以上"
 
 - id: HSD-SCH-002
   title: LVDS 接收端用 100 Ω（±2%）差分端接电阻
@@ -556,7 +561,8 @@
       op: qualitative
       value: null
       unit: "imperial code"
-      note: "最大 0603，优先 0402 或更小（SPRAAR7J、AN10373、SLLU149）；电容排（C-pack）不允许"
+      note: "最大 0603，优先 0402 或更小（SPRAAR7J §3.10、AN10373 §2.5）；SLLU149E §5.4 对 USB3 TX 电容更严，写「不大于 0402」；电容排（C-pack）不允许"
+  conflicts: "SPRAAR7J、AN10373 允许最大 0603，SLLU149E §5.4 对 USB3 TX 电容写「no bigger than 0402」。取舍：USB3 TX 用 0402；PCIe 以 0402 为首选，0603 可接受。"
 
 - id: HSD-SCH-005
   title: 按接口速率选择 ESD 器件的电容、工作电压与等级
@@ -663,7 +669,7 @@
       op: "<="
       value: 10
       unit: "%"
-      note: "TUSB320 数据手册图中为 5.1 kΩ ±10%；USB Type-C 规范本身的容差未在本条读取，用 ±10% 偏保守"
+      note: "TUSB320 数据手册图中为 5.1 kΩ ±10%，内部 RCC_D 4.6–5.6 kΩ，死电池模式（§7.4.3）写 5.1 kΩ ±20%；USB Type-C 规范本身的容差未在本条读取，用 ±10% 偏保守"
   tags: [cat-feeder]
 
 - id: HSD-SCH-007
@@ -1031,7 +1037,7 @@
   domain: high_speed
   stage: floorplan
   severity: should
-  rule: 分立磁件到 RJ45 ≤ 25 mm（约 1 inch）；PHY 到磁件的距离在 Microchip 的 ≤ 1 inch（不得超 3 inch）与 SMSC 的 ≥ 25 mm 之间取舍（见 conflicts）；PHY 到磁件的整段差分线总长不超过 4 inch；PHY 与发送线对距板边 ≥ 25 mm；晶体及其电阻电容放在距 PHY 12 mm（约 500 mil）以内；其它高速信号与以太网前端的间距 ≥ 0.3 inch。
+  rule: 分立磁件到 RJ45 ≤ 25 mm（约 1 inch）；PHY 到磁件的距离在 Microchip 的 ≤ 1 inch（不得超 3 inch）与 SMSC 的 ≥ 25 mm 之间取舍（见 conflicts）；PHY 到 RJ45 的整段差分线总长（含磁件前后两段）不超过 4 inch；PHY 与发送线对距板边 ≥ 25 mm；晶体及其电阻电容放在距 PHY 12 mm（约 500 mil）以内；其它高速信号与以太网前端的间距 ≥ 0.3 inch。
   rationale: 磁件是隔离屏障和 EMI 滤波点，靠近 RJ45 使未过滤的线对最短；PHY 与磁件间隔太近会耦合噪声，太远则线对损耗与失配加大；晶体对杂散电容敏感。
   verify:
     - method: geometry_script
@@ -1313,7 +1319,7 @@
       value: null
       unit: uF
       note: "0.1/0.01/0.001 µF 并联（SNLA008A）；交替 0.01 与 0.1 µF 使谐振频率分散（AN-1263）；每个电源平面另加 10 µF（AN-1263）/4.7–10 µF（SNLA008A）"
-  conflicts: "距离数值不一致：TI AN-1263「最优 0.010 inch」是对其 PHY 的建议，SMSC 对 PHY 给 7 mm，Microchip 给 pad-to-via < 10 mil；DDR 器件 Micron 又明确不要每引脚一颗。取舍：以所用器件手册为准，缺省取 TI 的最严值，并用 PDN 仿真（HSD-VER-005）确认。"
+  conflicts: "距离数值不一致：TI AN-1263「最优 0.010 inch」是对其 PHY 的建议，SMSC 对 PHY 给 7 mm，Microchip 给 pad-to-via < 10 mil；DDR 器件 Micron 又明确不要每引脚一颗；过孔位置也不一致：SNLA302 §4 写「不要把过孔放在旁路电容与 IC 之间」，Micron 对 DDR 则把过孔放在电容的器件一侧。取舍：以所用器件手册为准，缺省取 TI 的最严值，并用 PDN 仿真（HSD-VER-005）确认。"
 
 - id: HSD-RTE-001
   title: 差分对全程对称平行，未耦合段只允许出现在引出和连接器处
@@ -1325,7 +1331,7 @@
   verify:
     - method: drc
       tool: "kicad-cli pcb drc（.kicad_dru）"
-      check: "对差分网络类设 diff_pair_gap (min,max) 与 diff_pair_uncoupled (max 6.35mm)（0.25 inch）；PCIe 引脚入口处的未耦合段按 AN10373 另设 max 45 mil；DRC 无 'Differential uncoupled length too long' / 'Differential pair gap out of range'"
+      check: "对差分网络类设 diff_pair_gap (min,max) 与 diff_pair_uncoupled (max 6.35mm)（0.25 inch）；PCIe 引脚入口处使用多弯折的未耦合段按 AN10373 另设 max 45 mil；DRC 无 'Differential uncoupled length too long' / 'Differential pair gap out of range'"
       automatable: full
     - method: geometry_script
       tool: "pcbnew (KiCad bundled Python)"
@@ -1347,11 +1353,11 @@
       publisher: "Texas Instruments"
       kind: app_note
       section: "§3"
-    - title: "AN10373 PCI Express PHY PCB Layout Guideline（§2.2.2-2.3：线宽 5 mil、微带间距 7 mil、引脚前未耦合段 ≤ 45 mil）"
+    - title: "AN10373 PCI Express PHY PCB Layout Guideline（§2.2.2：线宽 5 mil、微带间距 7 mil；§2.2.4 图 6：多弯折时引脚前未耦合段 ≤ 45 mil）"
       url: "https://community.nxp.com/pwmxy87654/attachments/pwmxy87654/powerquicc/2284/2/philips_PCIe_pcb_routing_guide.pdf"
       publisher: "NXP (Philips Semiconductors)"
       kind: app_note
-      section: "§2.2.2, §2.3"
+      section: "§2.2.2, §2.2.4"
     - title: "KiCad 9.0 PCB Editor — diff_pair_gap / diff_pair_uncoupled"
       url: "https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html"
       publisher: "KiCad"
@@ -1368,7 +1374,7 @@
       op: "<="
       value: 45
       unit: mil
-      note: "AN10373 §2.3；引脚/焊球入口区的未耦合段"
+      note: "AN10373 §2.2.4 / 图 6：使用多个弯折时，引脚/焊球入口区的未耦合段 ≤ 45 mil"
     - name: pair_gap_less_than_dielectric_height
       op: qualitative
       value: null
@@ -1618,7 +1624,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew (KiCad bundled Python)，读填充后的铜区多边形"
-      check: "对每个高速网络的每段走线（外层），取相邻内层/对面层的 GND 铜区：线中心线必须在铜内，且到铜区边缘/空洞边缘的距离 ≥ max(90 mil, 1.5W) （边缘用 90 mil，空洞用 1.5W）；输出违反的线段；换层段检查两层 GND 是否同网络"
+      check: "对每个高速网络的每段走线（外层），取相邻内层/对面层的 GND 铜区：线中心线必须在铜内，且到参考面外缘的距离 ≥ 90 mil，到参考面内空洞边缘的距离 ≥ 1.5W（两者是不同的判据，不要取 max；SMD 焊盘处的挖空除外）；输出违反的线段；换层段检查两层 GND 是否同网络"
       automatable: full
   sources:
     - title: "SPRAAR7J High-Speed Interface Layout Guidelines（§2.4；§3.2）"
@@ -1626,11 +1632,11 @@
       publisher: "Texas Instruments"
       kind: app_note
       section: "§2.4, §3.2"
-    - title: "SLLA414A High-Speed Layout Guidelines for Signal Conditioners and USB Hubs（§3.5）"
+    - title: "SLLA414A High-Speed Layout Guidelines for Signal Conditioners and USB Hubs（§3.5 参考面、缝合电容；§4.2 ≥ 90 mil 与 1.5W）"
       url: "https://www.ti.com/lit/pdf/slla414"
       publisher: "Texas Instruments"
       kind: app_note
-      section: "§3.5"
+      section: "§3.5, §4.2"
     - title: "AN2054 Gigabit Ethernet Design Guide（PCB Layer Strategy）"
       url: "https://ww1.microchip.com/downloads/en/Appnotes/00002054A.pdf"
       publisher: "Microchip"
@@ -1814,7 +1820,7 @@
       op: "<="
       value: 2
       unit: pcs
-      note: "TI SoC 表；AM335x/KeyStone PCIe/SATA 为 0，AM65xx/AM64x 的 PCIe/SGMII 为 2"
+      note: "TI SoC 表 A-2/A-5/A-6；AM57xx/KeyStone II 的 PCIe/SATA 为 0，AM65xx/AM64x 的 PCIe/SGMII 为 2"
     - name: ethernet_vias_per_diff_trace
       op: "<="
       value: 2
@@ -1880,7 +1886,7 @@
       op: "<="
       value: 3500
       unit: mil
-      note: "AM335x/AM57xx 3500 mil；KeyStone/AM64x 5500 mil；AM65xx 4000 mil"
+      note: "AM57xx/DRA7xx 3500 mil（表 A-2）；KeyStone II/AM64x 5500 mil；AM65xx 4000 mil"
     - name: pcie_total_trace_length
       op: "<="
       value: 4700

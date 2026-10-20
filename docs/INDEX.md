@@ -1,6 +1,6 @@
 # 电路设计最佳实践库 — 索引
 
-共 **531** 条规则，330 个不同的来源 URL。本文件由 `tools/build_docs.py` 从 `catalog/*.yaml` 生成。
+共 **531** 条规则，331 个不同的来源 URL。本文件由 `tools/build_docs.py` 从 `catalog/*.yaml` 生成。
 
 ## 领域 × 环节
 
@@ -26,10 +26,10 @@
 | | high | medium | low | 合计 |
 |---|---|---|---|---|
 | must | 95 | 21 | 2 | 118 |
-| should | 236 | 113 | 6 | 355 |
+| should | 235 | 114 | 6 | 355 |
 | consider | 21 | 32 | 5 | 58 |
 
-含 `conflicts`（来源有分歧）的规则：141 条。
+含 `conflicts`（来源有分歧）的规则：144 条。
 
 ## 验证覆盖
 

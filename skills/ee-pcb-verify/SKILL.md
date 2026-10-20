@@ -30,9 +30,9 @@ $KPY -I scripts/lib/pcb_nets.py board.kicad_pcb nets.json && python3 scripts/lib
 ## The rule-checking harness
 
 ```bash
-python scripts/checkers/run.py --board board.kicad_pcb --design design/my_board.yaml            # pro defaults to board.kicad_pro; results -> ./ee-results/<date>/
-python scripts/checkers/run.py --board B --design D --rules DFM-PLC-003,GEN-STK-005 --checkers geometry,drc_rule
-python scripts/checkers/coverage.py                                                              # which automatable catalog rules are NOT wired, and why
+python3 scripts/checkers/run.py --board board.kicad_pcb --design design/my_board.yaml            # pro defaults to board.kicad_pro; results -> ./ee-results/<date>/
+python3 scripts/checkers/run.py --board B --design D --rules DFM-PLC-003,GEN-STK-005 --checkers geometry,drc_rule
+python3 scripts/checkers/coverage.py                                                              # which automatable catalog rules are NOT wired, and why
 ```
 
 (Paths are relative to this skill's directory. It finds the catalog by walking up to `catalog/`, or `$EE_CATALOG_DIR`.)

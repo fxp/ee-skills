@@ -195,7 +195,7 @@
 | `esp32c3_power_monitor_threshold` | == 3.0 V | Espressif 建议的监控器阈值，约 3.0 V，用于慢速 / 不稳定供电 |
 
 **验证**
-- `spice`（partial）· ngspice / LTspice（电源斜坡 + 复位 RC 的瞬态仿真） — 用实际电源上升时间（最慢和最快各一个）仿真：CHIP_EN 越过 0.75 x VDD 的时刻必须晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us； 掉电再上电的最短间隔下 EN 也必须被拉低至少 50 us。
+- `spice`（partial）· ngspice / LTspice（电源斜坡 + 复位 RC 的瞬态仿真） — 用实际电源上升时间（最慢和最快各一个）仿真：CHIP_EN 上升越过 VIL_nRST（0.25 x VDD，数据手册 Figure 2-4 中 tSTBL 的终点）的时刻必须晚于各电源轨达到 2.8 V（Figure 2-4 的标注点）至少 50 us， 且 EN 随后要升过 VIH_nRST（0.75 x VDD）；掉电再上电的最短间隔下 EN 也必须低于 VIL_nRST 至少 50 us（tRST）。
 - `bench`（manual）· 示波器（多通道） — 同时抓取 5 V、3V3、EN、strapping 引脚，确认顺序和时间间隔满足上述参数，覆盖冷启动、热复位和欠压恢复。
 
 **来源**
@@ -339,7 +339,7 @@
 - `geometry_script`（partial）· 解析 .kicad_mod 与 .kicad_sym 的脚本 — 对含裸露焊盘的器件：符号中存在对应编号的引脚（如 EP / 末位编号）；封装中该编号的焊盘尺寸与数据手册一致； 锡膏层开口总面积 / 铜焊盘面积 在 [0.5, 0.7]；过孔孔径 0.2-0.3 mm 且与焊盘同编号。
 - `bench`（manual）· X 光 — 首件回流后拍散热焊盘，空洞面积占比 <= 50%（大功率应用）。
 
-**来源分歧** SLUA271 早期版本（2002）写锡膏覆盖约 50%，2023 修订版写 50-70%；其他厂商的 QFN 指南可能给出不同的覆盖范围。 取舍：按所用器件的厂商指南为准，没有时用 TI 最新修订版的 50-70%，并以首件 X 光结果修正。
+**来源分歧** SLUA271 的 2018 年修订版 B 与 2023 年修订版 C 都写锡膏覆盖约 50-70%（C 版修订历史只改了编号格式；2002 年原版未取得原文）； 其他厂商的 QFN 指南可能给出不同的覆盖范围（未核对）。 取舍：按所用器件的厂商指南为准，没有时用 TI 最新修订版的 50-70%，并以首件 X 光结果修正。
 
 **来源**
 - [QFN and SON PCB Attachment (SLUA271C)](https://www.ti.com/lit/slua271) — Texas Instruments, app_note, 3.4 Exposed Pad PCB Design, 3.4.1 Thermal Pad Via Design, 4.4 Exposed-Pad Stencil Design
@@ -492,7 +492,7 @@
 | `esp32c3_vih_nrst_min` | >= 0.75 x VDD | 释放阈值 VIH_nRST（Table 5-4） |
 
 **验证**
-- `spice`（partial）· ngspice / LTspice — 用最慢和最快的电源上升时间仿真 RC 与上拉：EN 越过 0.75 x VDD 的时刻晚于各电源轨达到 2.8 V（数据手册 Figure 2-4 的标注点）至少 50 us； 掉电后再上电时 EN 低于 0.25 x VDD 的持续时间 >= 50 us。
+- `spice`（partial）· ngspice / LTspice — 用最慢和最快的电源上升时间仿真 RC 与上拉：EN 上升越过 0.25 x VDD（VIL_nRST，数据手册 Figure 2-4 中 tSTBL 的终点）的时刻晚于各电源轨达到 2.8 V（Figure 2-4 的标注点）至少 50 us， 且 EN 随后升过 0.75 x VDD（VIH_nRST）；掉电后再上电时 EN 低于 0.25 x VDD 的持续时间 >= 50 us。
 - `erc`（partial）· 自写脚本：kicad-cli sch export netlist — CHIP_EN 网络上必须同时存在上拉电阻和到地电容；复位按键支路中电容与按键之间有串联电阻。
 - `bench`（manual）· 示波器 — 测量 3V3 与 EN 的时序，并连续做 20 次以上冷启动与掉电重启，不得出现启动失败或需要手动复位。
 
@@ -672,7 +672,7 @@
 
 **验证**
 - `erc`（full）· 自写脚本：kicad-cli sch export netlist — 网表中每条电源轨网络至少有一个 TP 类元件；GND 网络至少有两个；复位 / 使能 / 烧录信号网络各至少一个。
-- `geometry_script`（full）· pcbnew Python（参见 ee-pcb-verify 的 geometry 检查器） — 每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近焊盘中心距 >= 1.27 mm，与板边 >= 3.175 mm，全部在同一面。夹具数值以实际测试厂要求为准。
+- `geometry_script`（full）· pcbnew Python（参见 ee-pcb-verify 的 geometry 检查器） — 每个 TP 焊盘直径 >= 0.8 mm（首选 1.0 mm），与最近的其他测试点中心距 >= 1.27 mm（首选 1.9 mm），与板边 >= 3.175 mm（首选 5 mm），与最近元件 >= 1.0 mm（首选 1.5 mm），全部在同一面。夹具数值以实际测试厂要求为准。
 
 **来源分歧** 各资料给的焊盘与间距数值略有出入（有的最小 0.9 mm，推荐 1.27 mm），且依赖具体测试夹具。 取舍：以夹具厂文档的 1.0 / 0.8 mm 为基线，下单前以实际测试方的规则为准。DFM 领域的规则可能给出更细的几何要求，这里只管原理图层面的存在性。
 
@@ -965,7 +965,7 @@
 **来源**
 - [PCB Stack-Up, Part 1 (Henry Ott Consultants)](https://hott.shielddigitaldesign.com/techtips/pcb-stack-up-1.html) — Henry Ott Consultants, paper, two-layer vs. multi-layer
 - [PCB Design Guidelines For Reduced EMI (SZZA009)](https://www.ti.com/lit/an/szza009/szza009.pdf) — Texas Instruments, app_note, §2.1.2 Two-Layer vs Four-Layer Boards
-- [Hardware design with RP2040](https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf) — Raspberry Pi, vendor_guide, §2 minimal design (2 layer) vs §4 four-layer example
+- [Hardware design with RP2040](https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf) — Raspberry Pi, vendor_guide, §2 minimal design (2 layer) vs §3 VGA/SD/audio demo board (4 layer)
 
 <a id="GEN-STK-002"></a>
 #### GEN-STK-002 · 4 层板信号层贴近邻接平面，两平面间用厚芯板
@@ -1052,7 +1052,7 @@
 |---|---|---|
 | `ipc2221_k_external` | == 0.048 - | I = k·ΔT^0.44·A^0.725，A 为 mil² |
 | `ipc2221_k_internal` | == 0.024 - | 同上；内层 k 减半，同电流下所需截面积约为外层的 2.6 倍（因 0.725 指数） |
-| `design_temp_rise` | <= 10 degC | 常用基线；semiconductor.tools 建议高可靠 5 °C、非关键最多 20 °C；Wevolver 称 10 °C→20 °C 约可减窄 25~30%（二手数字） |
+| `design_temp_rise` | <= 10 degC | 常用基线；semiconductor.tools：10 °C 最常见、高可靠 5 °C 更好、非关键应用 20 °C 可接受（并非上限）；Wevolver 称 10 °C→20 °C 约可减窄 25~30%（二手数字，其自身示例 110→70 mil 约 36%，前后不一致，仅供参考） |
 
 **验证**
 - `tline_calc`（full）· Python 按公式计算（1 oz = 1.378 mil 厚） — 对每条载流网络取峰值 / RMS 电流 I，反解 A=(I/(k·ΔT^0.44))^(1/0.725)，宽度=A/铜厚；板上该网络最窄处宽度 ≥ 计算值。例（本调研按公式算出）：1 oz 外层 ΔT=10 °C：1 A→0.30 mm，3 A→1.37 mm，5 A→2.77 mm；同条件内层 k=0.024：1 A→0.78 mm，3 A→3.56 mm
@@ -1080,7 +1080,7 @@
 | `min_parallel_vias_power_transition` | >= 2 count | Espressif：主电源走线跨层至少两个过孔 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew：遍历电源 / 地网络的 PCB_VIA，按“连接同一对铜区域的过孔数”分组 — 每个电源 / 地 / 电机网络的每个跨层连接点，并联过孔数 ≥ 2；大电流网络用 I / I_via_max 向上取整得到所需数量，I_via_max 取下面 note 估算的保守值
+- `geometry_script`（partial）· pcbnew：遍历电源 / 地网络的 PCB_VIA，按“连接同一对铜区域的过孔数”分组 — 每个电源 / 地 / 电机网络的每个跨层连接点，并联过孔数 ≥ 2；大电流网络用 I / I_via_max 向上取整得到所需数量，I_via_max 取 0.5 A / 过孔的保守值（见 conflicts：Wevolver 约 0.5 A，AtlasPCB 0.3 mm 孔约 1.2 A）
 - `drc`（partial）· KiCad 自定义规则 via_count — (rule min_two_vias (condition "A.hasNetclass('Power')") (constraint via_count (min 2))) —— 注意 via_count 统计的是整网过孔总数，只能粗筛；逐连接点检查用 geometry_script
 - `bench`（manual）· 毫欧表 / 四线法 + 热像仪 — 对最大电流路径通额定电流测过孔段压降与温升，温升 ≤ 设计 ΔT
 
@@ -1207,7 +1207,7 @@
 | `antenna_clearance_in_housing` | >= 15 mm | Espressif：外壳内天线周围各方向 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew，参见 ee-pcb-verify 的 geometry 检查器 的天线区检查 — 取模块 footprint 天线端的外包框，通过判据：天线禁布区内（所有铜层）元件数 = 0，且天线端到最近板边距离 ≤ 馈点到板边距离的 +2 mm；板边外侧悬出时检查机械可行性
+- `geometry_script`（partial）· pcbnew，参见 ee-pcb-verify 的 geometry 检查器 的天线区检查 — 取模块 footprint 天线端的外包框，通过判据：天线禁布区内（所有铜层）元件数 = 0，且天线端到最近板边距离 ≤ 馈点到板边距离的 +2 mm（+2 mm 为经验阈值，Espressif 未给数值）；板边外侧悬出时检查机械可行性
 - `bench`（manual）· 路由器 / 手机 RSSI 或吞吐量测试 — 在最终外壳里测同一距离、同一环境下的 RSSI 与吞吐量，对比模块官方开发板；通过判据：RSSI 差 ≤ 3 dB
 
 **来源分歧** “RSSI 差 ≤ 3 dB” 是本条验证的经验通过判据，不是 Espressif 数值；RF 领域细节由 RF 文件负责。
@@ -1330,7 +1330,7 @@
 - `geometry_script`（full）· pcbnew — 取 OSC_IN / OSC_OUT 两条网络的走线长度 L1、L2 与过孔数；通过判据：L1、L2 ≤ 项目设定值（建议 ≤ 10 mm，经验阈值）且 |L1−L2| ≤ 20%（经验阈值），过孔数 = 0；检查 CL1 / CL2 到晶振的距离对称
 - `bench`（manual）· 示波器 + 低电容探头（10 MΩ / <1 pF）或频率计 — 测上电到振荡稳定的启动时间与输出频率偏差，通过判据：启动时间 ≤ 数据手册典型值，频率偏差在晶振 ppm 容差内；探头不要直接挂振荡引脚，用时钟输出引脚代替
 
-**来源分歧** 本板用 ESP32-C3 模块，晶振在模块内，板上没有 OSC 走线；本条为板上有分立晶振时的基线。ST 的“保护环”与 Espressif 的“时钟走线周围密地过孔 / 地铜”是同一思路。
+**来源分歧** 本板用 ESP32-C3 模块，晶振在模块内，板上没有 OSC 走线；本条为板上有分立晶振时的基线。ST 的“保护环”与 Espressif 的“时钟走线周围密地过孔 / 地铜”是同一思路。另：Espressif Crystal 节写有“crystal should be placed far from the clock pin … gap at least 2.0 mm”（原文未说明 clock pin 具体指哪个引脚），与 ST 的“as close as possible to the microcontroller”看似相反；本条按 ST 取贴近，不引入 2.0 mm 数值，板上有分立晶振时按所用芯片的指南核对。
 
 **来源**
 - [AN2867 Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs](https://www.st.com/resource/en/application_note/an2867-guidelines-for-oscillator-design-on-stm8afals-and-stm32-mcusmpus-stmicroelectronics.pdf) — STMicroelectronics, app_note, §7.1 PCB design guidelines（读的是 Rev 13；该节针对 32 kHz 振荡器，同样适用于一般晶振）
@@ -1411,7 +1411,7 @@
 | `termination_required_trace_length` | > 304.8 mm | TI SZZA009 §2.4.3：走线超过 1 英尺、通向屏蔽外壳外的电缆、或出现振铃时要端接 |
 
 **验证**
-- `geometry_script`（full）· pcbnew — 对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载
+- `geometry_script`（full）· pcbnew — 对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上；此为识别用的宽范围，宽于 parameters 中 TI 建议的输出脚 50~100 Ω），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载
 - `si_sim`（partial）· IBIS 或 ngspice：驱动 + 走线 + 输入电容 — 对 > 1 英尺的走线或通向电缆的信号做瞬态仿真，过冲 / 下冲 ≤ 器件绝对最大额定值裕量
 
 **来源**
@@ -1440,16 +1440,16 @@
 
 <a id="GEN-RTE-001"></a>
 #### GEN-RTE-001 · 每条信号线下方保持连续的回流参考铜
-`should` · 可信度 `high` · 适用: 2_layer, 4_layer · 标签: cat-feeder
+`should` · 可信度 `medium` · 适用: 2_layer, 4_layer · 标签: cat-feeder
 
-**规则** 对时钟、PWM、SPI、开关节点等快边沿信号，沿整条走线在其正下方（相邻层）保持连续的 GND（或 PWR）铜，参考铜向走线两侧至少延伸 2h、推荐 5h（h 为走线到参考平面的介质厚度）。
+**规则** 对时钟、PWM、SPI、开关节点等快边沿信号，沿整条走线在其正下方（相邻层）保持连续的 GND（或 PWR）铜，参考铜向走线两侧至少延伸 2h、推荐 5h（h 为走线到参考平面的介质厚度；2h / 5h 是本库按 Ott 的回流分布表取的工程取值，Ott 并未规定延伸宽度）。
 
 **依据** 高频回流走阻抗最低路径，即信号线正下方的平面；回流电流分布在走线两侧，约 70% 在 ±2h 内，87% 在 ±5h 内，94% 在 ±10h 内。回流被切断就必须绕行，形成大环路，辐射与串扰随环路面积增大。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `return_plane_margin_70pct` | >= 2 multiple of h | Ott：x/h=2 时约 70% 回流在 ±x 内 |
-| `return_plane_margin_87pct` | >= 5 multiple of h | Ott：x/h=5 时约 87%；x/h=10→94%，20→97% |
+| `return_plane_margin_70pct` | >= 2 multiple of h | 本库取值，非 Ott 明文要求：Ott 表给出 x/h=2 时约 70% 回流在 ±x 内 |
+| `return_plane_margin_87pct` | >= 5 multiple of h | 本库取值，非 Ott 明文要求：Ott 表 x/h=5 时约 87%；x/h=10→94%，20→97% |
 
 **验证**
 - `geometry_script`（full）· pcbnew：取参考层 zone 填充多边形（zone.GetFilledPolysList） — 对 Clock / PWM / 高速网络的每个走线段每 0.5 mm 取采样点，在其参考层（2 层板为对面铜层；多层板为相邻平面层）查点是否落在 GND 填充内，且以采样点为中心 ±2h 范围的填充覆盖率 ≥ 90%；通过判据：违规采样点占比 ≤ 5%（占比阈值为经验值）。h 取叠层介质厚度（JLC 1.6 mm 2 层板约 1.5 mm）
@@ -1556,7 +1556,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `aggressor_victim_spacing` | >= 3 multiple of trace width | Altium / Sierra Circuits 的 3W；边到边口径较保守（中心到中心 3W 仅约 2W 净间距） |
+| `aggressor_victim_spacing` | >= 3 multiple of trace width | Altium / Sierra Circuits 的 3W（两处均未写明按边到边还是中心到中心；本库按较保守的边到边取，中心到中心 3W 仅约 2W 净间距） |
 | `absolute_min_spacing` | >= 2 multiple of trace width | TI SCAA082A：至少 2 倍线宽；§2.5 提示取 2~3 倍 |
 | `critical_traces_guarded_spacing` | >= 3 multiple of trace width | Sierra：关键线之间 3W~5W（取 3~5）并配合接地保护线 |
 
@@ -1565,7 +1565,7 @@
 - `geometry_script`（full）· pcbnew：计算平行段 — 对 Clock / PWM 网络与 Sensitive 网络的每对走线，找平行（夹角 < 10°）且间距 < 3W 的段，累计长度；通过判据：累计长度 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）
 - `bench`（manual）· 示波器 — 让干扰线持续翻转，测受害线上的串扰幅度，通过判据：串扰峰值 < 受害输入的噪声容限的 1/4（经验判据）
 
-**来源分歧** 3W 的度量口径各来源不同：多数说边到边，有说中心到中心；Altium 指出板子参考平面更近（介质更薄）时可以小于 3W，而间距实际取决于走线到平面的距离。取舍：边到边 3W 作保守值，平面很近时可降到不低于 2W（TI），并以仿真 / 实测验证。
+**来源分歧** 3W 的度量口径来源未统一说明：本次读到的 Altium / Sierra / TI 均未写明是边到边还是中心到中心，本库按较保守的边到边取；Altium 指出板子参考平面更近（介质更薄）时可以小于 3W，而间距实际取决于走线到平面的距离。取舍：边到边 3W 作保守值，平面很近时可降到不低于 2W（TI），并以仿真 / 实测验证。
 
 **来源**
 - [High-Speed Layout Guidelines (SCAA082A)](https://www.ti.com/lit/pdf/scaa082) — Texas Instruments, app_note, §1.4 Crosstalk; §2.5 tips
@@ -1604,7 +1604,7 @@
 | `connector_to_tvs_max_corner` | <= 45 deg | SLVA680A：优先圆弧，45° 为可接受的最大角 |
 
 **验证**
-- `geometry_script`（full）· pcbnew — 对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足
+- `geometry_script`（full）· pcbnew — 对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络；2 mm 为经验阈值，SLVA680A 只要求不相邻、未给距离）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足
 - `emc_precompliance`（manual）· ESD 枪 + 示波器 — 接触放电 ±4 kV 起，对比 TVS 前后波形；受保护 IC 引脚钳位峰值 < 其绝对最大额定值
 
 **来源**
@@ -1906,8 +1906,8 @@
 **依据** 完整的地给振荡回路一个紧贴的低阻回流并屏蔽相邻信号的耦合，同时没有别的网络的铜进入杂散电容敏感区。
 
 **验证**
-- `geometry_script`（full）· pcbnew — 取晶振 courtyard 外扩 1 mm，检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0
-- `bench`（manual）· 频率计 / 示波器（时钟输出引脚） — 冷启动 50 次，振荡启动成功率 100%，启动时间 ≤ 数据手册最大值；改动地参考前后对比
+- `geometry_script`（full）· pcbnew — 取晶振 courtyard 外扩 1 mm（外扩量为经验取值），检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0
+- `bench`（manual）· 频率计 / 示波器（时钟输出引脚） — 冷启动 50 次（次数为经验取值），振荡启动成功率 100%，启动时间 ≤ 数据手册最大值；改动地参考前后对比
 
 **来源分歧** ST：晶振下用专用局部地平面（与应用板地分开，仅连到最近 MCU 地，且仅在晶振附近需要）；Espressif：整个芯片 / RF / 晶振下是完整的 GND 平面。两者都要求紧邻的完整地，差别是否与大地分开。取舍：多层板按 Espressif（整块地），2 层板在地岛（GEN-PLN-005）内满足 ST 的局部地即可。
 
@@ -1919,16 +1919,16 @@
 #### GEN-PLN-011 · 芯片底部接地焊盘用多个过孔接地平面
 `should` · 可信度 `high` · 适用: qfn, esp32, module · 标签: cat-feeder
 
-**规则** QFN 等带底部接地焊盘（EPAD）的芯片：EPAD 通过至少 9 个地过孔接地平面；模块 EPAD 用方格网分割焊盘、锡膏印在方格间隙内，过孔打在间隙里。
+**规则** ESP32-C3 这类带底部接地焊盘（EPAD）的 QFN 芯片：EPAD 通过至少 9 个地过孔接地平面（9 为 Espressif 对该芯片的要求，其他芯片以各自数据手册为准）；模块 EPAD 用方格网分割焊盘、锡膏印在方格间隙内，过孔打在间隙里。
 
 **依据** 底部焊盘是芯片唯一（或主要）的地连接，同时承担散热；过孔数不足会增大地电感和热阻。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `epad_ground_vias_chip` | >= 9 count | Espressif：芯片底部地焊盘至少 9 个地过孔（该条出现在四层板章节，两层板章节沿用同一地连接原则） |
+| `epad_ground_vias_chip` | >= 9 count | Espressif：ESP32-C3 芯片底部地焊盘至少 9 个地过孔（芯片专用数值，不可套用到其他 QFN；该条出现在四层板章节，两层板章节未重复） |
 
 **验证**
-- `geometry_script`（full）· pcbnew — 取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：芯片 EPAD ≥ 9（ESP32-C3 QFN 芯片），模块 EPAD 按模块数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008）
+- `geometry_script`（full）· pcbnew — 取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：ESP32-C3 芯片 EPAD ≥ 9，其他芯片 / 模块 EPAD 按各自数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008）
 - `thermal_sim`（manual）· 热阻网络估算 / 热像仪 — 满载下测芯片壳温，通过判据：结温 ≤ 数据手册最大值 − 20 °C（余量为经验值）
 
 **来源**
@@ -2009,6 +2009,8 @@
 
 **验证**
 - `erc`（full）· 解析 .kicad_pro 的 ERC 严重级别表的脚本 — single_global_label、footprint_filter 的严重级别不是 ignore；kicad-cli sch erc 在启用后无违规。
+
+**来源分歧** KiCad 10 手册的 ERC 表把 footprint_filter（封装与过滤器不符）列为 Warning，pcbkit 的参考表则写默认忽略。实测（2026-10-20，KiCad 10.0.6）：对没有 .kicad_pro 的裸工程跑 kicad-cli sch erc，报告里的 ignored_checks 为 single_global_label、four_way_junction、simulation_model_issue、footprint_filter；所以命令行 / CI 里以报告的 ignored_checks 为准，不要依赖手册表。
 
 **来源**
 - [KiCad ERC Error Reference（默认严重级别表）](https://pcbkit.com/tools/kicad-erc-reference/) — pcbkit, blog
@@ -2093,7 +2095,7 @@
 **依据** 仿真的成本在建模和验证模型，只有结果会改变设计决策的块才值得做； 这些块的错误在板子回来之后很难靠改值修复，且依赖元件的实际行为（偏压降容、ESR、容差）。
 
 **验证**
-- `spice`（partial）· ngspice（kicad-cli sch export netlist --format spice 或 KiCad 内置仿真器） — 对每个入选块写一个带判据的仿真网表（例如 EN 越过阈值的时刻、输出过冲 / 欠冲、ADC 输入最大电压、栅极峰值电压）， 批处理运行并检查判据；容差用 STEP 或蒙特卡洛（TI 示例为 1000-100000 次）。
+- `spice`（partial）· ngspice（kicad-cli sch export netlist --format spice 或 KiCad 内置仿真器） — 对每个入选块写一个带判据的仿真网表（例如 EN 越过阈值的时刻、输出过冲 / 欠冲、ADC 输入最大电压、栅极峰值电压）， 批处理运行并检查判据；容差用 STEP 或蒙特卡洛（TI SLYP673 给出的典型运行次数为 1000-100000 次）。
 
 **来源**
 - [Schematic Design Review Checklist（Power：simulate switch-mode regulators for stability, current capability and voltage regulation）](https://resources.altium.com/p/schematic-review-checklist) — Altium, vendor_guide

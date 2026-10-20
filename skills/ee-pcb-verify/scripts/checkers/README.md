@@ -4,11 +4,11 @@
 `../../references/toolchain.md` §3 与 §3.4（第 1、2 步）。
 
 ```bash
-python run.py --board X.kicad_pcb --design design/my_board.yaml        # 两个检查器，结果写到 ./ee-results/<今天>/
-python run.py --board X.kicad_pcb --design D.yaml --pro X.kicad_pro --out some/dir
-python run.py --board X.kicad_pcb --design D.yaml --rules DFM-PLC-003,DFM-STK-001 --checkers geometry,drc_rule
-python coverage.py                                                     # 哪些可自动化规则还没接、为什么
-python -m pytest ../../../../tests -q                                  # 静态测试；种子缺陷测试需要 KiCad 10 和参考板（见 tests/test_checkers_seeded.py）
+python3 run.py --board X.kicad_pcb --design design/my_board.yaml        # 两个检查器，结果写到 ./ee-results/<今天>/
+python3 run.py --board X.kicad_pcb --design D.yaml --pro X.kicad_pro --out some/dir
+python3 run.py --board X.kicad_pcb --design D.yaml --rules DFM-PLC-003,DFM-STK-001 --checkers geometry,drc_rule
+python3 coverage.py                                                     # 哪些可自动化规则还没接、为什么
+python3 -m pytest ../../../../tests -q                                  # 静态测试；种子缺陷测试需要 KiCad 10 和参考板（见 tests/test_checkers_seeded.py）
 ```
 
 `--design` 从 `design/template.yaml` 复制修改：板文件里没有的信息（哪些是电源网 / 快沿网、哪些 IC 引脚配哪颗去耦电容、天线禁布区、分流电阻焊盘角色）写在这里，每项注明出处。

@@ -35,7 +35,7 @@
       url: "https://pip.raspberrypi.com/documents/RP-008279-DS-hardware-design-with-rp2040.pdf"
       publisher: "Raspberry Pi"
       kind: vendor_guide
-      section: "§2 minimal design (2 layer) vs §4 four-layer example"
+      section: "§2 minimal design (2 layer) vs §3 VGA/SD/audio demo board (4 layer)"
   confidence: medium
   applies_to: [mcu_board, 2_layer, 4_layer]
   parameters:
@@ -303,7 +303,7 @@
       op: "<="
       value: 10
       unit: degC
-      note: "常用基线；semiconductor.tools 建议高可靠 5 °C、非关键最多 20 °C；Wevolver 称 10 °C→20 °C 约可减窄 25~30%（二手数字）"
+      note: "常用基线；semiconductor.tools：10 °C 最常见、高可靠 5 °C 更好、非关键应用 20 °C 可接受（并非上限）；Wevolver 称 10 °C→20 °C 约可减窄 25~30%（二手数字，其自身示例 110→70 mil 约 36%，前后不一致，仅供参考）"
   conflicts: "二手资料对 IPC-2221 与 IPC-2152 的差异说法不一：Sierra Circuits、semiconductor.tools 等称 IPC-2221 整体偏保守、内层尤甚（内层 k 减半），IPC-2152 显示内外层相差不大；AtlasPCB 却称 IPC-2221 对外层偏保守、对内层常不保守，IPC-2152 对外层允许更大电流、对内层更小。另有博客给出的 IPC-2221 示例宽度（3 A 外层 46 mil）与按公式实算的 54 mil 不符。取舍：公式常数以 Sierra 页面为准并已自行验算；设计时 IPC-2221 当保守下限，只有叠层已知且邻近平面时才用 IPC-2152 缩窄，并用热测量验证。没有读到 IPC 标准原文，故置信度 medium。"
   tags: [cat-feeder]
 
@@ -317,7 +317,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew：遍历电源 / 地网络的 PCB_VIA，按“连接同一对铜区域的过孔数”分组"
-      check: "每个电源 / 地 / 电机网络的每个跨层连接点，并联过孔数 ≥ 2；大电流网络用 I / I_via_max 向上取整得到所需数量，I_via_max 取下面 note 估算的保守值"
+      check: "每个电源 / 地 / 电机网络的每个跨层连接点，并联过孔数 ≥ 2；大电流网络用 I / I_via_max 向上取整得到所需数量，I_via_max 取 0.5 A / 过孔的保守值（见 conflicts：Wevolver 约 0.5 A，AtlasPCB 0.3 mm 孔约 1.2 A）"
       automatable: partial
     - method: drc
       tool: "KiCad 自定义规则 via_count"
@@ -518,7 +518,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew，参见 ee-pcb-verify 的 geometry 检查器 的天线区检查"
-      check: "取模块 footprint 天线端的外包框，通过判据：天线禁布区内（所有铜层）元件数 = 0，且天线端到最近板边距离 ≤ 馈点到板边距离的 +2 mm；板边外侧悬出时检查机械可行性"
+      check: "取模块 footprint 天线端的外包框，通过判据：天线禁布区内（所有铜层）元件数 = 0，且天线端到最近板边距离 ≤ 馈点到板边距离的 +2 mm（+2 mm 为经验阈值，Espressif 未给数值）；板边外侧悬出时检查机械可行性"
       automatable: partial
     - method: bench
       tool: "路由器 / 手机 RSSI 或吞吐量测试"
@@ -848,7 +848,7 @@
       section: "§2.3 Crystal oscillator"
   confidence: high
   applies_to: [crystal, mcu]
-  conflicts: "本板用 ESP32-C3 模块，晶振在模块内，板上没有 OSC 走线；本条为板上有分立晶振时的基线。ST 的“保护环”与 Espressif 的“时钟走线周围密地过孔 / 地铜”是同一思路。"
+  conflicts: "本板用 ESP32-C3 模块，晶振在模块内，板上没有 OSC 走线；本条为板上有分立晶振时的基线。ST 的“保护环”与 Espressif 的“时钟走线周围密地过孔 / 地铜”是同一思路。另：Espressif Crystal 节写有“crystal should be placed far from the clock pin … gap at least 2.0 mm”（原文未说明 clock pin 具体指哪个引脚），与 ST 的“as close as possible to the microcontroller”看似相反；本条按 ST 取贴近，不引入 2.0 mm 数值，板上有分立晶振时按所用芯片的指南核对。"
 
 - id: GEN-PLC-007
   title: 晶振周围留出隔离区，不放无关元件
@@ -897,7 +897,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew"
-      check: "对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载"
+      check: "对每个标记为串联端接的电阻（值 22~100 Ω，位于 MCU 输出网络上；此为识别用的宽范围，宽于 parameters 中 TI 建议的输出脚 50~100 Ω），量它的 MCU 侧焊盘到驱动引脚焊盘的距离，通过判据 ≤ 项目设定值（建议 ≤ 5 mm，经验阈值）；该电阻 MCU 侧不得再分叉出其他负载"
       automatable: full
     - method: si_sim
       tool: "IBIS 或 ngspice：驱动 + 走线 + 输入电容"
@@ -974,7 +974,7 @@
   domain: general
   stage: routing
   severity: should
-  rule: 对时钟、PWM、SPI、开关节点等快边沿信号，沿整条走线在其正下方（相邻层）保持连续的 GND（或 PWR）铜，参考铜向走线两侧至少延伸 2h、推荐 5h（h 为走线到参考平面的介质厚度）。
+  rule: 对时钟、PWM、SPI、开关节点等快边沿信号，沿整条走线在其正下方（相邻层）保持连续的 GND（或 PWR）铜，参考铜向走线两侧至少延伸 2h、推荐 5h（h 为走线到参考平面的介质厚度；2h / 5h 是本库按 Ott 的回流分布表取的工程取值，Ott 并未规定延伸宽度）。
   rationale: 高频回流走阻抗最低路径，即信号线正下方的平面；回流电流分布在走线两侧，约 70% 在 ±2h 内，87% 在 ±5h 内，94% 在 ±10h 内。回流被切断就必须绕行，形成大环路，辐射与串扰随环路面积增大。
   verify:
     - method: geometry_script
@@ -1001,19 +1001,19 @@
       publisher: "Texas Instruments"
       kind: app_note
       section: "§1.4 Basic Loops; §2.1.4 Signal Return Grounds"
-  confidence: high
+  confidence: medium
   applies_to: [2_layer, 4_layer]
   parameters:
     - name: return_plane_margin_70pct
       op: ">="
       value: 2
       unit: "multiple of h"
-      note: "Ott：x/h=2 时约 70% 回流在 ±x 内"
+      note: "本库取值，非 Ott 明文要求：Ott 表给出 x/h=2 时约 70% 回流在 ±x 内"
     - name: return_plane_margin_87pct
       op: ">="
       value: 5
       unit: "multiple of h"
-      note: "Ott：x/h=5 时约 87%；x/h=10→94%，20→97%"
+      note: "本库取值，非 Ott 明文要求：Ott 表 x/h=5 时约 87%；x/h=10→94%，20→97%"
   tags: [cat-feeder]
 
 - id: GEN-RTE-002
@@ -1342,7 +1342,7 @@
       op: ">="
       value: 3
       unit: "multiple of trace width"
-      note: "Altium / Sierra Circuits 的 3W；边到边口径较保守（中心到中心 3W 仅约 2W 净间距）"
+      note: "Altium / Sierra Circuits 的 3W（两处均未写明按边到边还是中心到中心；本库按较保守的边到边取，中心到中心 3W 仅约 2W 净间距）"
     - name: absolute_min_spacing
       op: ">="
       value: 2
@@ -1353,7 +1353,7 @@
       value: 3
       unit: "multiple of trace width"
       note: "Sierra：关键线之间 3W~5W（取 3~5）并配合接地保护线"
-  conflicts: "3W 的度量口径各来源不同：多数说边到边，有说中心到中心；Altium 指出板子参考平面更近（介质更薄）时可以小于 3W，而间距实际取决于走线到平面的距离。取舍：边到边 3W 作保守值，平面很近时可降到不低于 2W（TI），并以仿真 / 实测验证。"
+  conflicts: "3W 的度量口径来源未统一说明：本次读到的 Altium / Sierra / TI 均未写明是边到边还是中心到中心，本库按较保守的边到边取；Altium 指出板子参考平面更近（介质更薄）时可以小于 3W，而间距实际取决于走线到平面的距离。取舍：边到边 3W 作保守值，平面很近时可降到不低于 2W（TI），并以仿真 / 实测验证。"
   tags: [cat-feeder]
 
 - id: GEN-RTE-011
@@ -1451,7 +1451,7 @@
   verify:
     - method: geometry_script
       tool: "pcbnew"
-      check: "对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足"
+      check: "对每个 ESD 网络：①连接器焊盘→TVS 焊盘之间过孔数 = 0 且线段无分叉；②其间拐角 ≤ 45°；③距离该路径 2 mm 内无其他网络的走线（未保护网络；2 mm 为经验阈值，SLVA680A 只要求不相邻、未给距离）；④TVS 地焊盘到最近 GND 过孔距离 ≤ 焊盘宽度（经验阈值）；通过判据：四项全满足"
       automatable: full
     - method: emc_precompliance
       tool: "ESD 枪 + 示波器"
@@ -1848,11 +1848,11 @@
   verify:
     - method: geometry_script
       tool: "pcbnew"
-      check: "取晶振 courtyard 外扩 1 mm，检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0"
+      check: "取晶振 courtyard 外扩 1 mm（外扩量为经验取值），检查相邻层 GND 填充覆盖率 ≥ 100%（无反焊盘 / 槽 / 他网络铜），且各层中无非 GND 非 OSC 网络的铜；通过判据：违规 = 0"
       automatable: full
     - method: bench
       tool: "频率计 / 示波器（时钟输出引脚）"
-      check: "冷启动 50 次，振荡启动成功率 100%，启动时间 ≤ 数据手册最大值；改动地参考前后对比"
+      check: "冷启动 50 次（次数为经验取值），振荡启动成功率 100%，启动时间 ≤ 数据手册最大值；改动地参考前后对比"
       automatable: manual
   sources:
     - title: "ESP32-C3 Hardware Design Guidelines — PCB Layout Design"
@@ -1874,12 +1874,12 @@
   domain: general
   stage: plane_pour
   severity: should
-  rule: QFN 等带底部接地焊盘（EPAD）的芯片：EPAD 通过至少 9 个地过孔接地平面；模块 EPAD 用方格网分割焊盘、锡膏印在方格间隙内，过孔打在间隙里。
+  rule: ESP32-C3 这类带底部接地焊盘（EPAD）的 QFN 芯片：EPAD 通过至少 9 个地过孔接地平面（9 为 Espressif 对该芯片的要求，其他芯片以各自数据手册为准）；模块 EPAD 用方格网分割焊盘、锡膏印在方格间隙内，过孔打在间隙里。
   rationale: 底部焊盘是芯片唯一（或主要）的地连接，同时承担散热；过孔数不足会增大地电感和热阻。
   verify:
     - method: geometry_script
       tool: "pcbnew"
-      check: "取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：芯片 EPAD ≥ 9（ESP32-C3 QFN 芯片），模块 EPAD 按模块数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008）"
+      check: "取每个 EPAD 焊盘的外包框，统计落在其中的 GND 过孔数；通过判据：ESP32-C3 芯片 EPAD ≥ 9，其他芯片 / 模块 EPAD 按各自数据手册；另检查 EPAD 与地铜的实心连接（GEN-PLN-008）"
       automatable: full
     - method: thermal_sim
       tool: "热阻网络估算 / 热像仪"
@@ -1898,5 +1898,5 @@
       op: ">="
       value: 9
       unit: count
-      note: "Espressif：芯片底部地焊盘至少 9 个地过孔（该条出现在四层板章节，两层板章节沿用同一地连接原则）"
+      note: "Espressif：ESP32-C3 芯片底部地焊盘至少 9 个地过孔（芯片专用数值，不可套用到其他 QFN；该条出现在四层板章节，两层板章节未重复）"
   tags: [cat-feeder]

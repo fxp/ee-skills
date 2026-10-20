@@ -59,7 +59,7 @@ For every rule you apply, record **pass / fail / unknown / N/A** and the evidenc
 * **No evidence means "unknown", not "pass".**
 * A rule that does not apply is **N/A with a reason**.
 * Rules with `confidence: medium|low`, or with a `conflicts` entry, are guidance: present the disagreement (both sides, then the rule's recommended trade-off) instead of reporting a hard fail.
-* Numbers in the catalog come from sources the researchers read; audits found roughly 5–10% of numeric high-confidence rules had some defect. Before a number becomes a gate that blocks an order, open the rule's source and check it.
+* Numbers in the catalog come from sources the researchers read. Every rule has been audited once against its sources (about 83% were right as written, the rest were corrected; see `docs/AUDIT.md` in the repo), but paywalled standards and some sites could not be read. Before a number becomes a gate that blocks an order, open the rule's source and check it.
 
 ## 4. Report
 
