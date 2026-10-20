@@ -9,11 +9,16 @@
 ## Summary
 <3–5 lines: ready to order? number of must-level fails / unknowns, the one or two things that matter most>
 
-## Findings (must first)
+## Findings: fails and risks (must first)
 | # | Rule | Sev | Stage | Status | Evidence | Fix | Verify with |
 |---|---|---|---|---|---|---|---|
 | 1 | PWR-ARC-002 | must | architecture | fail | AMS1117 SOT-223, 5 V→3.3 V at 0.35 A: P=0.6 W, θJA 150 °C/W → Tj≈129 °C at 40 °C ambient | larger copper / lower-θ part / buck | bom_check + thermal estimate |
 | … |
+
+## Passed (with the evidence that shows it)
+| Rule | Sev | Evidence |
+|---|---|---|
+| PWR-SCH-001 | should | schematic: J1 → PPTC → TVS → bulk cap, fuse upstream of the TVS |
 
 ## Disagreeing sources (conflicts)
 <for each reported rule that carries `conflicts`: the two positions, the trade-off the rule recommends, and what you chose for this board and why>

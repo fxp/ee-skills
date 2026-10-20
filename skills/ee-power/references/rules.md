@@ -16,7 +16,7 @@
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
-| `tj_max` | <= 125 C | AMS1117 数据手册 Thermal Protection：器件功能只保证到 125 C，热关断点约 150 C。 |
+| `tj_max` | <= 125 C | AMS1117 数据手册 Thermal Protection：器件功能只保证到 125 C，热关断点约 150 C（SLKOR 版；AMS 原版手册写 165 C，见 THM-ARC-002，各家不同）。设计按 125 C 结温上限，不依赖关断点。 |
 | `rtheta_ja_sot223_ams1117_datasheet` | == 150 C/W | DigiKey 托管的 AMS1117-3.3 SOT-223 数据手册（SLKOR 版本）；同一数据手册给出 SOT-223 最大耗散 PD=600 mW。TI LM1117 的 SOT-223 RthetaJA 为 61.6 C/W（JEDEC 板），两者差一倍以上，取决于铜面积与厂商，不能互相套用。 |
 | `pd_max_sot223_ams1117_datasheet` | <= 600 mW | 同一份数据手册的绝对最大额定值表。 |
 
@@ -369,6 +369,8 @@
 **验证**
 - `spice`（partial）· ngspice AC — LDO 输出节点接 Cout(含 ESR) 和全部陶瓷旁路电容总和（含各自走线电感 5~20 nH），读穿越频率处相位裕量，要求 >= 45 度。
 - `bench`（manual）· 示波器 + 阶跃负载 — AN-1482 §8 方法：装好所有电容、拆掉被供电 IC，用等效电阻做 0->额定负载阶跃，输出若有明显振铃说明相位裕量低。
+
+**来源分歧** 与 RF-SCH-007 方向相反：射频模组要求 3V3 脚旁放 10 uF + 0.1 uF 去耦。取舍见 RF-SCH-007：换陶瓷稳定的 LDO，或把模组电容与 LDO 输出隔开。
 
 **来源**
 - [AN-1482 LDO Regulator Stability Using Ceramic Output Capacitors](https://www.ti.com/lit/an/snva167a/snva167a.pdf) — Texas Instruments, app_note, §7-§8

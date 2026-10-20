@@ -46,6 +46,8 @@ SKILL = {  # domain key -> skill directory under skills/
     "analog": "ee-analog", "high_speed": "ee-high-speed", "emc_esd": "ee-emc-esd", "hv_safety": "ee-hv-safety",
     "thermal": "ee-thermal", "dfm": "ee-dfm",
 }
+DOM_PREFIX = {"general": "GEN", "power": "PWR", "low_power": "LPW", "rf": "RF", "audio": "AUD", "analog": "ANA", "high_speed": "HSD",
+              "emc_esd": "EMC", "hv_safety": "HVS", "thermal": "THM", "dfm": "DFM"}
 DOM_NAME = {k: n for k, n, _ in DOMAINS}
 STG_NAME = dict(STAGES)
 METH_NAME = dict(METHODS)

@@ -23,7 +23,7 @@ Always include `ee-general-pcb` and `ee-dfm`. Add the rest from what is on the b
 | If the board has … | add |
 |---|---|
 | any switching regulator, LDO, motor/relay driver, battery charger, current > ~0.5 A | `ee-power` (+ `ee-thermal` if a part dissipates > ~0.5 W) |
-| battery operation, deep sleep, always-on rails | `ee-low-power` |
+| battery operation, sleep modes or an energy budget (skip for a mains/DC-powered board that never sleeps) | `ee-low-power` |
 | antenna, Wi-Fi/BLE/LoRa/GNSS module or discrete RF | `ee-rf` |
 | codec, microphone, speaker/headphone amp | `ee-audio` |
 | ADC, sensor/bridge front-end, shunt current sense, reference | `ee-analog` |
@@ -35,7 +35,17 @@ Always include `ee-general-pcb` and `ee-dfm`. Add the rest from what is on the b
 
 ## 2. Walk the stages in order
 
-Earlier stages are cheaper to fix. For each stage, open the relevant domain skills' `references/rules-index.md` and read the `must` rules first, then `should`.
+Earlier stages are cheaper to fix. For each stage, take the `must` rules of the relevant domain skills first, then `should`.
+
+**Find rules fast, do not read the index files whole:**
+
+```bash
+python3 scripts/rules.py find AMS1117 ldo thermal     # index rows + topic-index lines matching any keyword (part numbers, standards, GPIO names, topics)
+python3 scripts/rules.py show PWR-ARC-002 THM-ARC-002 # full text of rules: rule, rationale, parameters, verify, sources, conflicts
+python3 scripts/rules.py show --all-must ee-rf        # the must-level rules of one domain skill
+```
+
+(Paths are relative to this skill; it reads the sibling `ee-*/references/` directories. `references/topic-index.md` maps part numbers and topics to rule IDs if you prefer to grep.)
 
 | Stage | Look at |
 |---|---|
@@ -61,11 +71,15 @@ For every rule you apply, record **pass / fail / unknown / N/A** and the evidenc
 * Rules with `confidence: medium|low`, or with a `conflicts` entry, are guidance: present the disagreement (both sides, then the rule's recommended trade-off) instead of reporting a hard fail.
 * Numbers in the catalog come from sources the researchers read. Every rule has been audited once against its sources (about 83% were right as written, the rest were corrected; see `docs/AUDIT.md` in the repo), but paywalled standards and some sites could not be read. Before a number becomes a gate that blocks an order, open the rule's source and check it.
 
-## 4. Report
+## 4. Text-only reviews
 
-Use `references/review-template.md`. Order: must-level fails first, then should, then unknowns, then N/A. Group by stage. Each finding: rule ID · severity · status · evidence · suggested fix · how to verify the fix (the rule's `verify` entry). End with the assumptions, the unknowns that need data from the user, and what was verified by tools versus by inspection.
+If the user gave only a description, review what can be computed or read from it (power dissipation, gains and ranges, fuse and rating arithmetic, topology rules) and mark everything else **unknown**, listing the data that would settle it (files, part numbers, ratings). Ask for the KiCad files and offer to run `ee-pcb-verify`. Do not pad the report with passes you cannot evidence.
 
-## 5. Do not
+## 5. Report
+
+Use `references/review-template.md`. Order: must-level fails first, then should, then unknowns, then N/A; items that pass go in a short separate table with their evidence. Group by stage inside each table. Each finding: rule ID · severity · status · evidence · suggested fix · how to verify the fix (the rule's `verify` entry). End with the assumptions, the unknowns that need data from the user, and what was verified by tools versus by inspection.
+
+## 6. Do not
 
 * Do not cite rules that are not in the catalog as if they were; label anything else as "general practice".
 * Do not copy long passages from the sources; the rules already paraphrase them and link them.

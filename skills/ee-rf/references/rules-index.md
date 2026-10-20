@@ -29,7 +29,7 @@
 | RF-SCH-004 | 差分射频口经与芯片匹配的巴伦接天线 | should | high | netlist_diff(partial) |
 | RF-SCH-005 | 发射链路保留谐波滤波并用 S21/谐波实测验收 | should | high | spice(partial) |
 | RF-SCH-006 | 射频电源脚分级去耦并串 LC 隔离 | should | high | bom_check(partial) |
-| RF-SCH-007 | 模组 3V3 脚旁放 10 µF + 0.1 µF，扛住发射电流尖峰 | should | high | spice(partial) |
+| RF-SCH-007 | 模组 3V3 脚旁放 10 µF + 0.1 µF，扛住发射电流尖峰 ⚠ | should | high | spice(partial) |
 | RF-SCH-008 | 预留传导测试口，射频线上不加探针测试点 | should | high | geometry_script(partial) |
 
 ## 网表与约束（netlist）

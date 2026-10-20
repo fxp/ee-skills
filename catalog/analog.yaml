@@ -269,7 +269,7 @@
   domain: analog
   stage: architecture
   severity: should
-  rule: "把 ESP32-C3 内置 ADC 当作约 12 位、总误差 ±10 mV（量程 ≤ 1300 mV）或 ±35 mV（量程 2500 mV）的粗测通道：只使用 ADC1（GPIO0 到 GPIO4），启用基于 eFuse 的 curve fitting 校准，把信号尽量放在低衰减档的精确区间，要求更高精度时改用外置 ADC。"
+  rule: "把 ESP32-C3 内置 ADC 当作约 12 位、总误差 ±10 mV（量程 ≤ 1300 mV）或 ±35 mV（量程 2500 mV）的粗测通道：只使用 ADC1（GPIO0 到 GPIO4；其中 GPIO2 同时是 strapping 引脚，见 GEN-SCH-006，接模拟前端时要保证复位期间的电平不影响启动），启用基于 eFuse 的 curve fitting 校准，把信号尽量放在低衰减档的精确区间，要求更高精度时改用外置 ADC。"
   rationale: "ADC 参考电压设计值 1100 mV，芯片间实际在 1000 到 1200 mV；ADC2 在部分芯片版本上不可用且没有出厂校准；高电压端误差明显变大，Espressif 的实测在 2890 mV 附近约 50 mV。"
   parameters:
     - name: dnl_inl

@@ -77,3 +77,15 @@ def test_bindings_reference_real_catalog_rules_and_params():
                 assert sub["param"] in names, (rid, sub["param"])
     for rid in GE.load_bindings():
         assert rid in cat, rid
+
+
+def test_rules_helper_and_topic_index():
+    helper = ROOT / "skills" / "ee-design-review" / "scripts" / "rules.py"
+    shown = subprocess.run([sys.executable, str(helper), "show", "PWR-ARC-002", "THM-ARC-002"], capture_output=True, text=True, check=True).stdout
+    assert "# PWR-ARC-002" in shown and "# THM-ARC-002" in shown and "**规则**" in shown
+    found = subprocess.run([sys.executable, str(helper), "find", "AMS1117"], capture_output=True, text=True, check=True).stdout
+    assert "PWR-ARC-002" in found and "topic-index" in found
+    missing = subprocess.run([sys.executable, str(helper), "show", "XXX-YYY-999"], capture_output=True, text=True, check=True).stdout
+    assert "not found" in missing
+    topics = (ROOT / "skills" / "ee-design-review" / "references" / "topic-index.md").read_text(encoding="utf-8")
+    assert "**AMS1117**" in topics and "**INA199**" in topics

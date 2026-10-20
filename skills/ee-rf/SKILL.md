@@ -5,7 +5,7 @@ description: "Sourced best-practice rules for RF and antenna circuits on PCBs: 2
 
 # 射频与天线（RF and antennas）
 
-规则库里本领域共 **45** 条（must 7 · should 35 · consider 3）。每条规则带量化参数、验证方式、来源和可信度；其中 15 条至少有一种验证方式可完全自动化，6 条的来源之间有分歧（已写明）。
+规则库里本领域共 **45** 条（must 7 · should 35 · consider 3）。每条规则带量化参数、验证方式、来源和可信度；其中 15 条至少有一种验证方式可完全自动化，7 条的来源之间有分歧（已写明）。
 
 ## 怎么用
 

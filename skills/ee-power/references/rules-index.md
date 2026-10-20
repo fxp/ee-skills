@@ -33,7 +33,7 @@
 | PWR-SCH-004 | TVS 按击穿电压、钳位电压、峰值电流三条选型 | should | high | bom_check(full) |
 | PWR-SCH-005 | 线缆热插拔的输入端抑制陶瓷电容谐振过冲 | should | medium | spice(partial) |
 | PWR-SCH-006 | 陶瓷电容按直流偏置、温度、公差降额后再核算 | should | high | bom_check(partial) |
-| PWR-SCH-008 | 限制 LDO 输出端并联的小陶瓷旁路电容 | should | high | spice(partial) |
+| PWR-SCH-008 | 限制 LDO 输出端并联的小陶瓷旁路电容 ⚠ | should | high | spice(partial) |
 | PWR-SCH-009 | 降压输出电容按有效电容和穿越频率阻抗核算 | should | high | bom_check(full) |
 | PWR-SCH-010 | 降压输入电容核算纹波有效值并并联高频旁路电容 | should | medium | bom_check(full) |
 | PWR-SCH-011 | 电机 MOSFET 栅极加下拉电阻和串联电阻 | should | high | erc(full) |

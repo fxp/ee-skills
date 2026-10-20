@@ -285,7 +285,7 @@
 
 **规则** ESP32-C3-WROOM-02 的 3V3 脚旁放 10 µF（C1）和 0.1 µF（C2），LDO 到模组的路径短而宽； Wi-Fi 发射瞬间 3V3 必须保持在 3.0-3.6 V，不得跌出。
 
-**依据** 发射时的电流尖峰会拉塌电源轨，导致射频性能变差或复位；模组 802.11b 1 Mbps、20.5 dBm 时峰值电流 345 mA。
+**依据** 发射时的电流尖峰会拉塌电源轨，导致射频性能变差或复位；模组 802.11b 1 Mbps、20.5 dBm 时峰值电流 345 mA（模组数据手册；芯片数据手册的 802.11b 1 Mbps @21 dBm 为 335 mA，见 LPW-ARC-012，选型取模组值）。
 
 | 参数 | 判据 | 备注 |
 |---|---|---|
@@ -297,6 +297,8 @@
 **验证**
 - `spice`（partial）· ngspice 瞬态（LDO 模型 + 去耦 + 345 mA 阶跃） — 在模组 3V3 引脚处最小电压 >= 3.0 V（含 LDO 瞬态响应与输出电容 ESR）。
 - `bench`（manual）· 示波器（AC 耦合 + 直流电压同测） — Wi-Fi 持续发射时抓模组 3V3 引脚波形，最低电压 >= 3.0 V，无复位。
+
+**来源分歧** 与 PWR-SCH-008 方向相反：模组要 10 uF + 0.1 uF 靠近 3V3 脚，而依赖 ESR 补偿的老式 LDO（如 AMS1117）不希望输出端堆小陶瓷电容。取舍：优先用陶瓷稳定的 LDO（PWR-ARC-004）；若仍用老式 LDO，让模组电容离 LDO 输出足够远或经磁珠隔离，整板装好后做负载阶跃验证（PWR-VER-002）。
 
 **来源**
 - [ESP32-C3-WROOM-02 & WROOM-02U Datasheet v1.7](https://www.espressif.com/sites/default/files/documentation/esp32-c3-wroom-02_datasheet_en.pdf) — Espressif Systems, datasheet, §6.2, §6.4.1 Table 6-4, §9 Figure 9-1
@@ -521,7 +523,7 @@
 | `murata_host_pcb_length_min` | > 40 mm | Murata MBN52832：主板长度 > 40 mm 才能得到最佳性能，50x50 mm 以上为佳；仅适用该模组 |
 
 **验证**
-- `geometry_script`（partial）· pcbnew (KiCad bundled Python) — 计算连通 GND 铜外包尺寸，达到厂商参考板的尺寸（猫食机板 66x60 mm）；天线馈点附近的地铜有密集接地过孔。
+- `geometry_script`（partial）· pcbnew (KiCad bundled Python) — 计算连通 GND 铜外包尺寸，达到所用天线 / 模组厂商给出的最小地平面尺寸（如 Murata MBN52832：主板长度 > 40 mm，50x50 mm 以上为佳；ESP32-C3 模组按 Espressif「在主板上放置模组」一节的示意）；天线馈点附近的地铜有密集接地过孔。
 - `em_sim`（partial）· openEMS — 扫描地平面长度/宽度，观察 S11 谐振频率和效率变化。
 
 **来源**

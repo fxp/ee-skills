@@ -51,7 +51,7 @@
       op: "<="
       value: 125
       unit: C
-      note: "AMS1117 数据手册 Thermal Protection：器件功能只保证到 125 C，热关断点约 150 C。"
+      note: "AMS1117 数据手册 Thermal Protection：器件功能只保证到 125 C，热关断点约 150 C（SLKOR 版；AMS 原版手册写 165 C，见 THM-ARC-002，各家不同）。设计按 125 C 结温上限，不依赖关断点。"
     - name: rtheta_ja_sot223_ams1117_datasheet
       op: "=="
       value: 150
@@ -630,6 +630,7 @@
   severity: should
   rule: 对依赖 ESR 补偿的老式 LDO，输出节点附近不要堆放大量 0.01~0.1 uF 陶瓷旁路电容；各芯片 VCC 去耦应离 LDO 输出足够远，或经串联电感/磁珠隔离，并在整板装好后用负载阶跃验证。
   rationale: 并联在大钽电容旁的小陶瓷电容并不会被「淹没」，它和输出阻抗形成新的极点：TI 例中十个 0.1 uF（共 1 uF）使极点落在 370 kHz，相位裕量从 68 度掉到约 9 度。
+  conflicts: "与 RF-SCH-007 方向相反：射频模组要求 3V3 脚旁放 10 uF + 0.1 uF 去耦。取舍见 RF-SCH-007：换陶瓷稳定的 LDO，或把模组电容与 LDO 输出隔开。"
   applies_to: [ldo, ams1117, decoupling]
   parameters:
     - name: problematic_bypass_cap_range

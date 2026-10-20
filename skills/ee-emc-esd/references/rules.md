@@ -302,7 +302,7 @@
 - `spice`（partial）· ngspice，电机用 R‖L + 反电势模型 — 扫 Ce，求 f_r 并确认与 PWM 频率相差一个数量级以上（一个数量级为经验取值）；检查开关管峰值电流
 - `emc_precompliance`（manual）· 近场探头 / 电流探头夹在电机引线上 — 加装电容前后比较 30–300 MHz 的噪声峰值，目标下降
 
-**来源分歧** Pololu 建议 0.1 µF；Precision Microdrives 针对小型振动电机用 PWM 驱动时建议 10–100 pF，并要求谐振频率 f_r = 1/(2π√(Lm·Ce)) 远离 PWM 频率。差别来自电机尺寸与驱动方式。取舍：本板 5 V、堵转 1.2 A 的减速电机，先按 Pololu 的 0.1 µF 起步，再用示波器看驱动器/ MOSFET 电流尖峰与 PWM 边沿，必要时降到更小值。
+**来源分歧** Pololu 建议 0.1 µF；Precision Microdrives 针对小型振动电机用 PWM 驱动时建议 10–100 pF，并要求谐振频率 f_r = 1/(2π√(Lm·Ce)) 远离 PWM 频率。差别来自电机尺寸与驱动方式。取舍：对 5 V、堵转 1 A 量级的小型减速电机，先按 Pololu 的 0.1 µF 起步，再用示波器看驱动器/ MOSFET 电流尖峰与 PWM 边沿，必要时降到更小值。
 
 **来源**
 - [Dealing with Motor Noise (Pololu 3pi / Orangutan motor driver note, §9)](https://www.pololu.com/docs/0J15/9) — Pololu, vendor_guide

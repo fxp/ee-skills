@@ -41,7 +41,7 @@
   applies_to: [ldo, mosfet, all-ics]
   parameters:
     - {name: ams1117_tj_max, op: "<=", value: 125, unit: "°C", note: "数据手册：最高结温不得超过 125 °C"}
-    - {name: ams1117_thermal_shutdown, op: "==", value: 165, unit: "°C", note: "保护阈值，不作为设计余量"}
+    - {name: ams1117_thermal_shutdown, op: "==", value: 165, unit: "°C", note: "保护阈值，不作为设计余量；AMS 原版手册写 165 °C，SLKOR 版写约 150 °C（见 PWR-ARC-002），各家不同"}
     - {name: ao3400a_tj_max, op: "<=", value: 150, unit: "°C"}
     - {name: ao3400a_pd_25c, op: "==", value: 1.4, unit: W, note: "基于 θJA ≤ 10 s 值与 1 in² 2 oz 铜板"}
     - {name: ao3400a_pd_70c, op: "==", value: 0.9, unit: W}

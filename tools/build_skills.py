@@ -9,9 +9,10 @@ references/ copies of docs/ files are refreshed here.
 Usage: python3 tools/build_skills.py        (run tools/validate.py first; output is deterministic)
 """
 import json
+import re
 import shutil
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -220,6 +221,31 @@ def coverage_matrix(rules):
     return "\n".join(o) + "\n"
 
 
+PART = re.compile(r"\b[A-Z][A-Z0-9]*\d[A-Z0-9]*(?:-[A-Z0-9]+)*\b")
+RULE_ID = re.compile(r"^[A-Z]{2,4}-[A-Z]{3}-\d{3}$")
+
+
+def topic_index(rules):
+    """Part numbers / standards / topics -> rule IDs, so a reviewer can find the rules for AMS1117, INA199, GPIO18, IEC-61000... without reading every index."""
+    tags, parts = defaultdict(set), defaultdict(set)
+    for r in rules:
+        for t in r.get("applies_to") or []:
+            tags[str(t).lower()].add(r["id"])
+        blob = " ".join([r["title"], r["rule"], r["rationale"]] + [p.get("note") or "" for p in r.get("parameters") or []] + [v["check"] for v in r["verify"]])
+        for tok in PART.findall(blob):
+            if len(tok) >= 4 and not RULE_ID.match(tok):
+                parts[tok].add(r["id"])
+    prefix = ", ".join(f"{B.DOM_PREFIX[k]} → `{B.SKILL[k]}`" for k, _, _ in B.DOMAINS)
+    o = ["# 主题索引（器件型号 / 标准号 / 主题 → 规则 ID）", "",
+         "不要整份读：用 `python3 scripts/rules.py find <关键词…>` 搜，或直接 `grep -i`。规则 ID 的前缀对应的 skill：" + prefix + "。"
+         "用 `python3 scripts/rules.py show <ID>` 看全文。这里只收规则文字里出现过的词；没出现不代表没有相关规则（换个同义词再搜）。", "",
+         "## 主题标签（规则的 applies_to）", ""]
+    o += [f"- **{k}**：{', '.join(sorted(v))}" for k, v in sorted(tags.items())]
+    o += ["", "## 器件型号 / 标准号 / 引脚名（规则文字里出现）", ""]
+    o += [f"- **{k}**：{', '.join(sorted(v))}" for k, v in sorted(parts.items())]
+    return "\n".join(o) + "\n"
+
+
 def main():
     rules, _ = B.load()
     if not rules:
@@ -241,6 +267,7 @@ def main():
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
     write(SKILLS / "ee-design-review" / "references" / "coverage-matrix.md", coverage_matrix(rules))
+    write(SKILLS / "ee-design-review" / "references" / "topic-index.md", topic_index(rules))
     print(f"built {len(META)} domain skills for {len(rules)} rules")
     return 0
 

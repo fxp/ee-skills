@@ -5,7 +5,7 @@ description: "Sourced best-practice rules for power circuits: buck/boost/flyback
 
 # 电源与功率（Power conversion and power stages）
 
-规则库里本领域共 **54** 条（must 16 · should 35 · consider 3）。每条规则带量化参数、验证方式、来源和可信度；其中 28 条至少有一种验证方式可完全自动化，13 条的来源之间有分歧（已写明）。
+规则库里本领域共 **54** 条（must 16 · should 35 · consider 3）。每条规则带量化参数、验证方式、来源和可信度；其中 28 条至少有一种验证方式可完全自动化，14 条的来源之间有分歧（已写明）。
 
 ## 怎么用
 

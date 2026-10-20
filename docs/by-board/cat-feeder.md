@@ -161,7 +161,7 @@
 | [PWR-SCH-004](../../skills/ee-power/references/rules.md#PWR-SCH-004) | TVS 按击穿电压、钳位电压、峰值电流三条选型 | 原理图 | high | bom_check (full) |
 | [PWR-SCH-005](../../skills/ee-power/references/rules.md#PWR-SCH-005) | 线缆热插拔的输入端抑制陶瓷电容谐振过冲 | 原理图 | medium | spice (partial) |
 | [PWR-SCH-006](../../skills/ee-power/references/rules.md#PWR-SCH-006) | 陶瓷电容按直流偏置、温度、公差降额后再核算 | 原理图 | high | bom_check (partial) |
-| [PWR-SCH-008](../../skills/ee-power/references/rules.md#PWR-SCH-008) | 限制 LDO 输出端并联的小陶瓷旁路电容 | 原理图 | high | spice (partial) |
+| [PWR-SCH-008](../../skills/ee-power/references/rules.md#PWR-SCH-008) | 限制 LDO 输出端并联的小陶瓷旁路电容 ⚠ | 原理图 | high | spice (partial) |
 | [PWR-SCH-011](../../skills/ee-power/references/rules.md#PWR-SCH-011) | 电机 MOSFET 栅极加下拉电阻和串联电阻 | 原理图 | high | erc (full) |
 | [PWR-SCH-013](../../skills/ee-power/references/rules.md#PWR-SCH-013) | 有刷电机接线端并联 0.1 uF 陶瓷电容 | 原理图 | medium | review (partial) |
 | [PWR-SCH-014](../../skills/ee-power/references/rules.md#PWR-SCH-014) | 上电复位时序：电源稳定后再使能，慢速斜坡加监控芯片 | 原理图 | high | spice (full) |
@@ -193,7 +193,7 @@
 | [RF-FLR-004](../../skills/ee-rf/references/rules.md#RF-FLR-004) | 天线远离晶振、高速时钟、开关电源、电机以及 USB/UART | 分区规划 | medium | geometry_script (partial) |
 | [RF-FLR-005](../../skills/ee-rf/references/rules.md#RF-FLR-005) | 单极类天线按厂商参考板提供足够的地平面 | 分区规划 | high | geometry_script (partial) |
 | [RF-LIB-001](../../skills/ee-rf/references/rules.md#RF-LIB-001) | 天线/模组封装自带厂商禁布区并保持不改 | 符号封装库 | high | drc (full) |
-| [RF-SCH-007](../../skills/ee-rf/references/rules.md#RF-SCH-007) | 模组 3V3 脚旁放 10 µF + 0.1 µF，扛住发射电流尖峰 | 原理图 | high | spice (partial) |
+| [RF-SCH-007](../../skills/ee-rf/references/rules.md#RF-SCH-007) | 模组 3V3 脚旁放 10 µF + 0.1 µF，扛住发射电流尖峰 ⚠ | 原理图 | high | spice (partial) |
 | [RF-STK-003](../../skills/ee-rf/references/rules.md#RF-STK-003) | 分立射频优先 4 层；2 层板底层须为整块实心地 ⚠ | 叠层与规则 | high | geometry_script (full) |
 | [RF-VER-006](../../skills/ee-rf/references/rules.md#RF-VER-006) | 在最终产品上实测吞吐量与通信距离 | 签核验证 | high | bench (manual) |
 | [ANA-ARC-001](../../skills/ee-analog/references/rules.md#ANA-ARC-001) | 选型前先做误差预算（失调/漂移/增益/容差） | 架构与选型 | high | bom_check (partial) |
